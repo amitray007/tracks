@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, copyFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdtemp, mkdir, copyFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -84,5 +84,89 @@ describe("ClaudeCodeAdapter", () => {
     expect(track.entries).toHaveLength(3);
     expect(track.truncated).toBe(true);
     expect(track.nextSequence).toBe(3);
+  });
+
+  it("normalizes Claude task notifications as linked agent results", async () => {
+    const sourceRoot = await createSource();
+    const sessionPath = join(sourceRoot, "example-project", "fixture-session.jsonl");
+    await appendFile(
+      sessionPath,
+      [
+        JSON.stringify({
+          type: "assistant",
+          sessionId: "fixture-session",
+          uuid: "agent-call",
+          timestamp: "2026-07-16T08:00:10.000Z",
+          message: {
+            content: [{
+              type: "tool_use",
+              id: "toolu-agent",
+              name: "Task",
+              input: { description: "Inspect the project" },
+            }],
+          },
+        }),
+        JSON.stringify({
+          type: "user",
+          sessionId: "fixture-session",
+          uuid: "literal-xml",
+          timestamp: "2026-07-16T08:00:10.500Z",
+          message: {
+            content: "Keep this code: <widget mode=\"compact\">content</widget>",
+          },
+        }),
+        JSON.stringify({
+          type: "user",
+          sessionId: "fixture-session",
+          uuid: "agent-notification",
+          timestamp: "2026-07-16T08:00:11.000Z",
+          message: {
+            content: [
+              "<task-notification>",
+              "<task-id>task-1</task-id>",
+              "<tool-use-id>toolu-agent</tool-use-id>",
+              "<output-file>/tmp/task-1.output</output-file>",
+              "<status>completed</status>",
+              "<summary>Repository inspection complete</summary>",
+              "<result>Found the relevant implementation.</result>",
+              "<usage><subagent_tokens>128015</subagent_tokens><tool_uses>37</tool_uses><duration_ms>206951</duration_ms></usage>",
+              "</task-notification>",
+            ].join("\n"),
+          },
+        }),
+      ].join("\n") + "\n",
+      "utf8",
+    );
+
+    const adapter = new ClaudeCodeAdapter({ sourceRoot });
+    const descriptor = (await adapter.scan()).tracks[0];
+    expect(descriptor).toBeDefined();
+    if (!descriptor) return;
+
+    const track = await adapter.loadTrack(descriptor, { entryLimit: 100 });
+    const agentResult = track.entries.find((entry) =>
+      entry.kind === "tool_result" && entry.toolUseId === "toolu-agent"
+    );
+    expect(agentResult).toMatchObject({
+      kind: "tool_result",
+      isError: false,
+      content: {
+        text: "Found the relevant implementation.",
+        summary: "Repository inspection complete",
+        status: "completed",
+        taskId: "task-1",
+        usage: {
+          subagentTokens: 128015,
+          toolUses: 37,
+          durationMs: 206951,
+        },
+      },
+    });
+    expect(track.entries.some((entry) =>
+      entry.kind === "message" && entry.text.includes("<task-notification>"),
+    )).toBe(false);
+    expect(track.entries.some((entry) =>
+      entry.kind === "message" && entry.text.includes("<widget mode=\"compact\">")
+    )).toBe(true);
   });
 });

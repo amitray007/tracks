@@ -21,6 +21,68 @@ import {
 
 const MAX_DIAGNOSTICS = 50;
 
+interface ClaudeTaskNotification {
+  taskId: string;
+  toolUseId: string;
+  status: string;
+  summary: string | null;
+  note: string | null;
+  result: string | null;
+  usage: {
+    subagentTokens: number | null;
+    toolUses: number | null;
+    durationMs: number | null;
+  };
+}
+
+function taggedValue(source: string, tag: string, useLastClosingTag = false): string | null {
+  const openingTag = `<${tag}>`;
+  const closingTag = `</${tag}>`;
+  const start = source.indexOf(openingTag);
+  if (start < 0) return null;
+  const contentStart = start + openingTag.length;
+  const end = useLastClosingTag
+    ? source.lastIndexOf(closingTag)
+    : source.indexOf(closingTag, contentStart);
+  if (end < contentStart) return null;
+  const value = source.slice(contentStart, end).trim();
+  return value || null;
+}
+
+function taggedNumber(source: string, tag: string): number | null {
+  const value = taggedValue(source, tag);
+  if (!value) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function parseTaskNotification(value: string): ClaudeTaskNotification | null {
+  const source = value.trim();
+  if (!source.startsWith("<task-notification>") || !source.endsWith("</task-notification>")) {
+    return null;
+  }
+
+  const taskId = taggedValue(source, "task-id");
+  const toolUseId = taggedValue(source, "tool-use-id");
+  const status = taggedValue(source, "status");
+  if (!taskId || !toolUseId || !status) return null;
+
+  const usageSource = taggedValue(source, "usage") ?? "";
+  return {
+    taskId,
+    toolUseId,
+    status,
+    summary: taggedValue(source, "summary"),
+    note: taggedValue(source, "note"),
+    result: taggedValue(source, "result", true),
+    usage: {
+      subagentTokens: taggedNumber(usageSource, "subagent_tokens"),
+      toolUses: taggedNumber(usageSource, "tool_uses"),
+      durationMs: taggedNumber(usageSource, "duration_ms"),
+    },
+  };
+}
+
 function toolCategory(name: string): ToolCallEntry["category"] {
   const normalized = name.toLowerCase();
   if (["bash", "shell", "terminal", "command"].some((part) => normalized.includes(part))) {
@@ -84,6 +146,29 @@ function entriesFromMessageRecord(
   const content = message?.content;
 
   if (typeof content === "string") {
+    const taskNotification = recordType === "user" ? parseTaskNotification(content) : null;
+    if (taskNotification) {
+      const normalizedStatus = taskNotification.status.toLocaleLowerCase();
+      return [
+        {
+          ...entryBase(record, lineNumber, 0, sequenceStart),
+          kind: "tool_result",
+          toolUseId: taskNotification.toolUseId,
+          content: {
+            text: taskNotification.result
+              ?? taskNotification.summary
+              ?? taskNotification.note
+              ?? `Agent task ${taskNotification.status}`,
+            summary: taskNotification.summary,
+            note: taskNotification.note,
+            status: taskNotification.status,
+            taskId: taskNotification.taskId,
+            usage: taskNotification.usage,
+          },
+          isError: !["completed", "success", "succeeded"].includes(normalizedStatus),
+        },
+      ];
+    }
     return [
       {
         ...entryBase(record, lineNumber, 0, sequenceStart),

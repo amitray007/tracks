@@ -83,6 +83,7 @@ Frequently observed optional evidence included UUID/parent UUID, session ID, age
 | `thinking` block | Reasoning entry | Availability and redaction remain explicit |
 | `tool_use` block | Tool call | Preserve exact Claude tool name and input; categorize by meaning |
 | `tool_result` block | Tool result | Relate by tool-use ID; content may be string or structured blocks |
+| Complete `<task-notification>` user record | Agent tool result | Claude emits completed background-task output as a synthetic user string. Parse only the complete, allowlisted wrapper; relate it to its `tool-use-id`, expose summary/result/usage as agent evidence, and never render the wrapper as user prose. Unknown or malformed XML remains untouched. |
 | File-history snapshot/delta | Artifact/file evidence or unsupported entry | Do not claim a user-visible file change until semantics are validated |
 | Agent/sidechain relationship evidence | Sub-agent relation or provider extension | Validate identity across nested files before creating child tracks |
 | Mode, permission, queue, title, PR-link records | Status/metadata/unsupported according to proven meaning | Retain raw evidence state and exact record kind |

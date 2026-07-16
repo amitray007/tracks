@@ -37,6 +37,7 @@ import { MarkdownContent } from "./ui/MarkdownContent";
 type ViewMode = "compact" | "full";
 type LiveState = "connecting" | "live" | "reconnecting";
 type EntryFilter = "messages" | "reasoning" | "tools" | "results" | "status" | "provider";
+type SidebarGroupMode = "time" | "project";
 
 const ENTRY_FILTERS: ReadonlyArray<{
   id: EntryFilter;
@@ -92,6 +93,10 @@ function filterForEntry(entry: TrackEntry): EntryFilter {
 
 function readModeFromLocation(): ViewMode {
   return new URLSearchParams(window.location.search).get("view") === "full" ? "full" : "compact";
+}
+
+function readSidebarGroupFromLocation(): SidebarGroupMode {
+  return new URLSearchParams(window.location.search).get("group") === "project" ? "project" : "time";
 }
 
 function readFiltersFromLocation(): Set<EntryFilter> {
@@ -464,7 +469,13 @@ function DetailsRail({
       <section>
         <div className="rail-heading">Session</div>
         <dl>
-          <div><dt>Provider</dt><dd className="provider-value"><ClaudeCodeIcon size={14} label={track.summary.providerLabel} /></dd></div>
+          <div>
+            <dt>Provider</dt>
+            <dd className="provider-value">
+              <ClaudeCodeIcon size={14} />
+              <span>{track.summary.providerLabel}</span>
+            </dd>
+          </div>
           <div><dt>Project</dt><dd>{track.summary.projectLabel}</dd></div>
           <div><dt>Started</dt><dd>{formatDate(track.summary.startedAt)}</dd></div>
           <div><dt>Source</dt><dd>{formatBytes(track.summary.sourceBytes)}</dd></div>
@@ -556,6 +567,7 @@ export function App() {
   const [liveState, setLiveState] = useState<LiveState>("connecting");
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<ViewMode>(readModeFromLocation);
+  const [sidebarGroup, setSidebarGroup] = useState<SidebarGroupMode>(readSidebarGroupFromLocation);
   const [activeFilters, setActiveFilters] = useState<Set<EntryFilter>>(readFiltersFromLocation);
   const [activeToolFilters, setActiveToolFilters] = useState<Set<ToolIntent>>(readToolFiltersFromLocation);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -628,6 +640,8 @@ export function App() {
   useEffect(() => {
     const url = new URL(window.location.href);
     url.searchParams.set("view", mode);
+    if (sidebarGroup === "project") url.searchParams.set("group", "project");
+    else url.searchParams.delete("group");
     url.searchParams.delete("type");
     if (activeFilters.size === 0) {
       url.searchParams.append("type", "none");
@@ -645,7 +659,7 @@ export function App() {
       }
     }
     window.history.replaceState(null, "", url);
-  }, [activeFilters, activeToolFilters, mode]);
+  }, [activeFilters, activeToolFilters, mode, sidebarGroup]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -701,6 +715,20 @@ export function App() {
   }, [library, query]);
 
   const visibleTrackGroups = useMemo(() => {
+    if (sidebarGroup === "project") {
+      const grouped = new Map<string, { key: string; label: string; tracks: TrackSummary[] }>();
+      for (const item of visibleTracks) {
+        const existing = grouped.get(item.projectId);
+        if (existing) existing.tracks.push(item);
+        else grouped.set(item.projectId, {
+          key: `project:${item.projectId}`,
+          label: item.projectLabel,
+          tracks: [item],
+        });
+      }
+      return [...grouped.values()];
+    }
+
     const grouped = new Map<SessionGroupLabel, TrackSummary[]>();
     for (const item of visibleTracks) {
       const label = sessionGroup(item.updatedAt);
@@ -710,9 +738,9 @@ export function App() {
     }
     return SESSION_GROUPS.flatMap((label) => {
       const tracks = grouped.get(label);
-      return tracks?.length ? [{ label, tracks }] : [];
+      return tracks?.length ? [{ key: `time:${label}`, label, tracks }] : [];
     });
-  }, [visibleTracks]);
+  }, [sidebarGroup, visibleTracks]);
 
   const filterCounts = useMemo<Record<EntryFilter, number>>(() => {
     const counts: Record<EntryFilter, number> = {
@@ -833,12 +861,26 @@ export function App() {
         </div>
         <div className="library-section-heading">
           <span>{query.trim() ? `${visibleTracks.length.toLocaleString()} results` : "Sessions"}</span>
-          <IconButton
-            label="Refresh Claude sessions"
-            icon="refresh"
-            onClick={() => void loadLibrary(true)}
-            disabled={refreshing}
-          />
+          <div className="library-heading-actions">
+            <label className="sidebar-group-control">
+              <span className="sr-only">Group sessions by</span>
+              <select
+                aria-label="Group sessions by"
+                value={sidebarGroup}
+                onChange={(event) => setSidebarGroup(event.target.value as SidebarGroupMode)}
+              >
+                <option value="time">By time</option>
+                <option value="project">By project</option>
+              </select>
+              <Icon name="disclosure" size="xs" />
+            </label>
+            <IconButton
+              label="Refresh Claude sessions"
+              icon="refresh"
+              onClick={() => void loadLibrary(true)}
+              disabled={refreshing}
+            />
+          </div>
         </div>
         <div className="session-list" aria-busy={!library && !libraryError}>
           {!library && !libraryError ? Array.from({ length: 7 }, (_, index) => (
@@ -849,7 +891,7 @@ export function App() {
             <div className="library-empty">No sessions match this search.</div>
           ) : null}
           {visibleTrackGroups.map((group) => (
-            <section className="session-group" key={group.label} aria-label={group.label}>
+            <section className="session-group" key={group.key} aria-label={group.label}>
               <header className="session-group-heading">
                 <span>{group.label}</span>
                 <span>{group.tracks.length}</span>
@@ -918,7 +960,7 @@ export function App() {
                     <span><Icon name="project" size="sm" />{track.summary.projectLabel}</span>
                     <span className="track-provider" title={track.summary.providerLabel}>
                       <ClaudeCodeIcon size={14} />
-                      <span className="sr-only">{track.summary.providerLabel}</span>
+                      <span>{track.summary.providerLabel}</span>
                     </span>
                     <span>{formatBytes(track.summary.sourceBytes)}</span>
                   </div>

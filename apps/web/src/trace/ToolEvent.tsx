@@ -404,6 +404,59 @@ export function resultText(content: unknown): string {
   return stringValue(record, "text", "content") ?? jsonText(content);
 }
 
+function compactNumber(value: number): string {
+  return new Intl.NumberFormat(undefined, {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
+function durationLabel(milliseconds: number): string {
+  const totalSeconds = Math.round(milliseconds / 1_000);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+}
+
+function AgentResult({ entry, text }: { entry: ToolResultEntry; text: string }) {
+  const payload = asRecord(entry.content);
+  const usage = asRecord(payload?.usage);
+  const summary = stringValue(payload, "summary");
+  const status = stringValue(payload, "status") ?? (entry.isError ? "failed" : "completed");
+  const taskId = stringValue(payload, "taskId");
+  const tokens = numberValue(usage, "subagentTokens");
+  const toolUses = numberValue(usage, "toolUses");
+  const durationMs = numberValue(usage, "durationMs");
+  const clipped = text.length > 12_000 ? `${text.slice(0, 12_000)}\n… output clipped in this view` : text;
+
+  return (
+    <div className={`agent-result-card${entry.isError ? " is-error" : ""}`}>
+      <header>
+        <span className="agent-result-title" title={summary ?? "Background agent task"}>
+          <Icon name="agent" size="sm" />
+          <span>{summary ?? "Background agent task"}</span>
+        </span>
+        <span className="agent-result-status">{humanize(status)}</span>
+      </header>
+      <div className="entry-prose agent-result-copy">
+        <MarkdownContent value={clipped || "No result content"} />
+      </div>
+      <footer>
+        <div className="agent-result-metrics" title={taskId ? `Claude task ${taskId}` : undefined}>
+          {tokens !== null ? <span title={`${tokens.toLocaleString()} sub-agent tokens`}>{compactNumber(tokens)} tokens</span> : null}
+          {toolUses !== null ? <span>{toolUses.toLocaleString()} tool {toolUses === 1 ? "use" : "uses"}</span> : null}
+          {durationMs !== null ? <span title={`${durationMs.toLocaleString()} ms`}>{durationLabel(durationMs)}</span> : null}
+        </div>
+        <CopyButton value={text} label="Copy agent result" />
+      </footer>
+    </div>
+  );
+}
+
 export function ToolResultBody({ entry, call }: {
   entry: ToolResultEntry;
   call: ToolCallEntry | undefined;
@@ -413,6 +466,10 @@ export function ToolResultBody({ entry, call }: {
   const clipped = text.length > 12_000 ? `${text.slice(0, 12_000)}\n… output clipped in this view` : text;
   const callInput = call ? asRecord(call.input) : null;
   const sourcePath = stringValue(callInput, "file_path", "path", "notebook_path");
+
+  if (intent === "agent" && stringValue(asRecord(entry.content), "taskId")) {
+    return <AgentResult entry={entry} text={text} />;
+  }
 
   if (!entry.isError && call && ["edit", "create", "delete"].includes(intent)) {
     return (
