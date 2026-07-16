@@ -38,11 +38,32 @@ export const TrackSummarySchema = z.object({
 
 export type TrackSummary = z.infer<typeof TrackSummarySchema>;
 
+export const ActivityKindSchema = z.enum([
+  "skill",
+  "mcp",
+  "channel",
+  "hook",
+  "memory",
+  "command",
+]);
+
+export type ActivityKind = z.infer<typeof ActivityKindSchema>;
+
+export const EntryActivitySchema = z.object({
+  kind: ActivityKindSchema,
+  label: z.string().min(1),
+  operation: z.string().min(1),
+  data: z.record(z.string(), z.unknown()).optional(),
+});
+
+export type EntryActivity = z.infer<typeof EntryActivitySchema>;
+
 const EntryBaseSchema = z.object({
   id: z.string().min(1),
   sequence: z.number().int().nonnegative(),
   timestamp: z.string().datetime().nullable(),
   providerRecordKind: z.string().nullable(),
+  activity: EntryActivitySchema.optional(),
 });
 
 export const MessageEntrySchema = EntryBaseSchema.extend({

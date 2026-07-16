@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import type {
+  ActivityKind,
   Track,
   TrackEntry,
   TrackSummary,
@@ -30,6 +31,11 @@ import {
   toolTone,
   type ToolIntent,
 } from "./trace/ToolEvent";
+import {
+  ActivityEventBody,
+  activityForEntry,
+  activityIcon,
+} from "./trace/ActivityEvent";
 import { CopyButton } from "./ui/CopyButton";
 import { ClaudeCodeIcon } from "./ui/ClaudeCodeIcon";
 import { Icon, type IconName } from "./ui/Icon";
@@ -86,6 +92,21 @@ const TOOL_FILTERS: ReadonlyArray<{
 
 const ALL_TOOL_FILTERS = TOOL_FILTERS.map(({ id }) => id);
 
+const ACTIVITY_FILTERS: ReadonlyArray<{
+  id: ActivityKind;
+  label: string;
+  icon: IconName;
+}> = [
+  { id: "skill", label: "Skills", icon: "skill" },
+  { id: "mcp", label: "MCP", icon: "mcp" },
+  { id: "channel", label: "Channels", icon: "channel" },
+  { id: "hook", label: "Hooks", icon: "hook" },
+  { id: "memory", label: "Memory", icon: "memory" },
+  { id: "command", label: "Commands", icon: "command" },
+];
+
+const ALL_ACTIVITY_FILTERS = ACTIVITY_FILTERS.map(({ id }) => id);
+
 function filterForEntry(entry: TrackEntry): EntryFilter {
   switch (entry.kind) {
     case "message": return "messages";
@@ -108,13 +129,16 @@ function searchableValue(value: unknown): string {
 
 function entrySearchText(entry: TrackEntry): string {
   const providerKind = entry.providerRecordKind ?? "";
+  const activity = entry.activity
+    ? `${entry.activity.kind}\n${entry.activity.label}\n${entry.activity.operation}\n${searchableValue(entry.activity.data)}`
+    : "";
   switch (entry.kind) {
-    case "message": return `${entry.role}\n${entry.text}\n${providerKind}`;
-    case "reasoning": return `${entry.text ?? ""}\n${providerKind}`;
-    case "tool_call": return `${entry.name}\n${searchableValue(entry.input)}\n${providerKind}`;
-    case "tool_result": return `${searchableValue(entry.content)}\n${providerKind}`;
-    case "status": return `${entry.label}\n${entry.detail ?? ""}\n${entry.tone}\n${providerKind}`;
-    case "unsupported": return `${entry.summary}\n${providerKind}`;
+    case "message": return `${entry.role}\n${entry.text}\n${activity}\n${providerKind}`;
+    case "reasoning": return `${entry.text ?? ""}\n${activity}\n${providerKind}`;
+    case "tool_call": return `${entry.name}\n${searchableValue(entry.input)}\n${activity}\n${providerKind}`;
+    case "tool_result": return `${searchableValue(entry.content)}\n${activity}\n${providerKind}`;
+    case "status": return `${entry.label}\n${entry.detail ?? ""}\n${entry.tone}\n${activity}\n${providerKind}`;
+    case "unsupported": return `${entry.summary}\n${activity}\n${providerKind}`;
   }
 }
 
@@ -175,6 +199,15 @@ function readToolFiltersFromLocation(): Set<ToolIntent> {
   return new Set(known.length > 0 ? known : ALL_TOOL_FILTERS);
 }
 
+function readActivityFiltersFromLocation(): Set<ActivityKind> {
+  const values = new URLSearchParams(window.location.search).getAll("activity");
+  if (values.includes("none")) return new Set();
+  const known = values.filter((value): value is ActivityKind =>
+    ALL_ACTIVITY_FILTERS.includes(value as ActivityKind),
+  );
+  return new Set(known.length > 0 ? known : ALL_ACTIVITY_FILTERS);
+}
+
 function formatRelativeTime(value: string): string {
   const distance = Date.now() - Date.parse(value);
   const minutes = Math.floor(distance / 60_000);
@@ -222,6 +255,16 @@ function entryPresentation(
   entry: TrackEntry,
   relatedToolCall?: ToolCallEntry,
 ): { icon: IconName; label: string; tone: string } {
+  const activity = activityForEntry(entry, relatedToolCall);
+  if (activity && entry.kind !== "tool_call" && entry.kind !== "tool_result") {
+    return {
+      icon: activityIcon(activity),
+      label: activity.kind === "channel"
+        ? `Channel · ${activity.label}`
+        : entry.kind === "status" ? entry.label : activity.label,
+      tone: activity.kind,
+    };
+  }
   switch (entry.kind) {
     case "message":
       return entry.role === "user"
@@ -256,6 +299,9 @@ function EntryBody({ entry, relatedToolCall }: {
   entry: TrackEntry;
   relatedToolCall: ToolCallEntry | undefined;
 }) {
+  if (entry.activity && entry.kind !== "tool_call" && entry.kind !== "tool_result") {
+    return <ActivityEventBody entry={entry} />;
+  }
   switch (entry.kind) {
     case "message":
       return <div className="entry-prose"><MarkdownContent value={entry.text} /></div>;
@@ -294,6 +340,9 @@ function EntryNode({
   icon: IconName;
   viewer: ViewerIdentity | null;
 }) {
+  if (entry.activity) {
+    return <span className="entry-node activity-entry-node" data-kind={entry.activity.kind}><Icon name={activityIcon(entry.activity)} size="sm" /></span>;
+  }
   if (entry.kind === "message" && entry.role === "user") {
     return (
       <span className="entry-avatar-shell">
@@ -697,10 +746,13 @@ function DetailsRail({
   traceOrder,
   activeFilters,
   activeToolFilters,
+  activeActivityFilters,
   filterCounts,
   toolFilterCounts,
+  activityFilterCounts,
   onToggleFilter,
   onToggleToolFilter,
+  onToggleActivityFilter,
   onResetFilters,
   onClearFilters,
   onTraceOrderChange,
@@ -711,10 +763,13 @@ function DetailsRail({
   traceOrder: TraceOrder;
   activeFilters: ReadonlySet<EntryFilter>;
   activeToolFilters: ReadonlySet<ToolIntent>;
+  activeActivityFilters: ReadonlySet<ActivityKind>;
   filterCounts: Record<EntryFilter, number>;
   toolFilterCounts: Record<ToolIntent, number>;
+  activityFilterCounts: Record<ActivityKind, number>;
   onToggleFilter(filter: EntryFilter): void;
   onToggleToolFilter(filter: ToolIntent): void;
+  onToggleActivityFilter(filter: ActivityKind): void;
   onResetFilters(): void;
   onClearFilters(): void;
   onTraceOrderChange(order: TraceOrder): void;
@@ -738,14 +793,15 @@ function DetailsRail({
         </dl>
       </section>
       {mode === "full" ? (
+        <>
         <section>
           <div className="rail-heading-row">
             <div className="rail-heading">Evidence filters</div>
             <button
               type="button"
-              onClick={activeFilters.size > 0 ? onClearFilters : onResetFilters}
+              onClick={activeFilters.size + activeActivityFilters.size > 0 ? onClearFilters : onResetFilters}
             >
-              {activeFilters.size > 0 ? "Clear" : "Show all"}
+              {activeFilters.size + activeActivityFilters.size > 0 ? "Clear" : "Show all"}
             </button>
           </div>
           <div className="filter-list">
@@ -793,6 +849,33 @@ function DetailsRail({
           </div>
           {track.truncated ? <p className="rail-note filter-count-note">Counts update as entries load.</p> : null}
         </section>
+        <section className="activity-filter-section">
+          <div className="rail-heading">Claude activity</div>
+          <div className="activity-filter-grid" aria-label="Claude activity types">
+            {ACTIVITY_FILTERS.filter((filter) => activityFilterCounts[filter.id] > 0).map((filter) => {
+              const active = activeActivityFilters.has(filter.id);
+              return (
+                <button
+                  key={filter.id}
+                  type="button"
+                  aria-label={`${filter.label}, ${activityFilterCounts[filter.id]}`}
+                  aria-pressed={active}
+                  data-active={active}
+                  data-kind={filter.id}
+                  onClick={() => onToggleActivityFilter(filter.id)}
+                >
+                  <Icon name={filter.icon} size="sm" />
+                  <span>{filter.label}</span>
+                  <output>{activityFilterCounts[filter.id]}</output>
+                </button>
+              );
+            })}
+          </div>
+          {ACTIVITY_FILTERS.every((filter) => activityFilterCounts[filter.id] === 0) ? (
+            <p className="rail-note">No Claude-specific activity in the loaded slice.</p>
+          ) : null}
+        </section>
+        </>
       ) : (
         <section>
           <div className="rail-heading">Available evidence</div>
@@ -857,6 +940,7 @@ export function App() {
   const [traceSearchMode, setTraceSearchMode] = useState<TraceSearchMode>("text");
   const [activeFilters, setActiveFilters] = useState<Set<EntryFilter>>(readFiltersFromLocation);
   const [activeToolFilters, setActiveToolFilters] = useState<Set<ToolIntent>>(readToolFiltersFromLocation);
+  const [activeActivityFilters, setActiveActivityFilters] = useState<Set<ActivityKind>>(readActivityFiltersFromLocation);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [trackError, setTrackError] = useState<string | null>(null);
@@ -1056,8 +1140,16 @@ export function App() {
         if (activeToolFilters.has(filter)) url.searchParams.append("tool", filter);
       }
     }
+    url.searchParams.delete("activity");
+    if (activeActivityFilters.size === 0) {
+      url.searchParams.append("activity", "none");
+    } else if (activeActivityFilters.size < ALL_ACTIVITY_FILTERS.length) {
+      for (const filter of ALL_ACTIVITY_FILTERS) {
+        if (activeActivityFilters.has(filter)) url.searchParams.append("activity", filter);
+      }
+    }
     window.history.replaceState(null, "", url);
-  }, [activeFilters, activeToolFilters, mode, sidebarGroup, traceOrder]);
+  }, [activeActivityFilters, activeFilters, activeToolFilters, mode, sidebarGroup, traceOrder]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1198,7 +1290,22 @@ export function App() {
       other: 0,
     };
     for (const entry of track?.entries ?? []) {
-      if (entry.kind === "tool_call") counts[toolIntent(entry)] += 1;
+      if (entry.kind === "tool_call" && !entry.activity) counts[toolIntent(entry)] += 1;
+    }
+    return counts;
+  }, [track]);
+
+  const activityFilterCounts = useMemo<Record<ActivityKind, number>>(() => {
+    const counts: Record<ActivityKind, number> = {
+      skill: 0,
+      mcp: 0,
+      channel: 0,
+      hook: 0,
+      memory: 0,
+      command: 0,
+    };
+    for (const entry of track?.entries ?? []) {
+      if (entry.activity) counts[entry.activity.kind] += 1;
     }
     return counts;
   }, [track]);
@@ -1213,6 +1320,11 @@ export function App() {
       );
     }
     return track.entries.filter((entry) => {
+      const relatedToolCall = entry.kind === "tool_result" && entry.toolUseId
+        ? toolCallsById.get(entry.toolUseId)
+        : undefined;
+      const activity = activityForEntry(entry, relatedToolCall);
+      if (activity) return activeActivityFilters.has(activity.kind);
       if (!activeFilters.has(filterForEntry(entry))) return false;
       if (entry.kind === "tool_call") return activeToolFilters.has(toolIntent(entry));
       if (entry.kind === "tool_result" && entry.toolUseId) {
@@ -1221,7 +1333,7 @@ export function App() {
       }
       return true;
     });
-  }, [activeFilters, activeToolFilters, mode, toolCallsById, track]);
+  }, [activeActivityFilters, activeFilters, activeToolFilters, mode, toolCallsById, track]);
 
   const entrySearchIndex = useMemo(() => new Map(
     (track?.entries ?? []).map((entry) => [entry.id, entrySearchText(entry)]),
@@ -1270,6 +1382,15 @@ export function App() {
 
   function toggleToolFilter(filter: ToolIntent) {
     setActiveToolFilters((current) => {
+      const next = new Set(current);
+      if (next.has(filter)) next.delete(filter);
+      else next.add(filter);
+      return next;
+    });
+  }
+
+  function toggleActivityFilter(filter: ActivityKind) {
+    setActiveActivityFilters((current) => {
       const next = new Set(current);
       if (next.has(filter)) next.delete(filter);
       else next.add(filter);
@@ -1498,6 +1619,7 @@ export function App() {
                           } else {
                             setActiveFilters(new Set(ALL_ENTRY_FILTERS));
                             setActiveToolFilters(new Set(ALL_TOOL_FILTERS));
+                            setActiveActivityFilters(new Set(ALL_ACTIVITY_FILTERS));
                           }
                         }}
                       >
@@ -1527,15 +1649,22 @@ export function App() {
               traceOrder={traceOrder}
               activeFilters={activeFilters}
               activeToolFilters={activeToolFilters}
+              activeActivityFilters={activeActivityFilters}
               filterCounts={filterCounts}
               toolFilterCounts={toolFilterCounts}
+              activityFilterCounts={activityFilterCounts}
               onToggleFilter={toggleFilter}
               onToggleToolFilter={toggleToolFilter}
+              onToggleActivityFilter={toggleActivityFilter}
               onResetFilters={() => {
                 setActiveFilters(new Set(ALL_ENTRY_FILTERS));
                 setActiveToolFilters(new Set(ALL_TOOL_FILTERS));
+                setActiveActivityFilters(new Set(ALL_ACTIVITY_FILTERS));
               }}
-              onClearFilters={() => setActiveFilters(new Set())}
+              onClearFilters={() => {
+                setActiveFilters(new Set());
+                setActiveActivityFilters(new Set());
+              }}
               onTraceOrderChange={setTraceOrder}
             />
           ) : null}

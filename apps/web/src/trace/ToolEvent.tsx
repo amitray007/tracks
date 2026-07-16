@@ -123,6 +123,9 @@ export function toolIntent(entry: ToolCallEntry): ToolIntent {
 }
 
 export function toolIcon(entry: ToolCallEntry): IconName {
+  if (entry.activity?.kind === "skill") return "skill";
+  if (entry.activity?.kind === "mcp") return "mcp";
+  if (entry.activity?.kind === "memory") return "memory";
   switch (toolIntent(entry)) {
     case "command": return "command";
     case "read": return "read";
@@ -160,6 +163,14 @@ export function toolHeadline(entry: ToolCallEntry): string {
   const query = stringValue(input, "query", "pattern");
   const command = stringValue(input, "command");
 
+  if (entry.activity?.kind === "skill") return `Invoked ${entry.activity.label}`;
+  if (entry.activity?.kind === "mcp") return `${humanize(entry.activity.operation)} · ${humanize(entry.activity.label)}`;
+  if (entry.activity?.kind === "memory") {
+    return entry.activity.operation === "read"
+      ? `Recalled ${entry.activity.label}`
+      : `Updated ${entry.activity.label}`;
+  }
+
   switch (toolIntent(entry)) {
     case "command": return `Ran ${description ?? command?.split("\n", 1)[0] ?? entry.name}`;
     case "read": return `Read ${path ? fileName(path) : entry.name}`;
@@ -186,6 +197,9 @@ export function toolHeadline(entry: ToolCallEntry): string {
 export function toolResultHeadline(call: ToolCallEntry | undefined, isError: boolean): string {
   if (isError) return "Tool error";
   if (!call) return "Tool result";
+  if (call.activity?.kind === "skill") return "Skill instructions";
+  if (call.activity?.kind === "mcp") return `MCP response · ${humanize(call.activity.label)}`;
+  if (call.activity?.kind === "memory") return call.activity.operation === "read" ? "Memory contents" : "Memory updated";
   switch (toolIntent(call)) {
     case "command": return "Command output";
     case "read": return "File contents";
@@ -202,6 +216,7 @@ export function toolResultHeadline(call: ToolCallEntry | undefined, isError: boo
 }
 
 export function toolTone(entry: ToolCallEntry): string {
+  if (entry.activity) return entry.activity.kind;
   return toolIntent(entry);
 }
 
@@ -371,8 +386,54 @@ function StructuredCall({ entry, input, intent }: {
   );
 }
 
+function ActivityToolCall({ entry, input }: { entry: ToolCallEntry; input: UnknownRecord | null }) {
+  const activity = entry.activity;
+  if (!activity) return null;
+  const intent = toolIntent(entry);
+
+  if (activity.kind === "memory") {
+    return (
+      <div className="memory-tool-call">
+        <div className="memory-tool-context">
+          <span><Icon name="memory" size="xs" />Claude memory</span>
+          <span>{activity.operation === "read" ? "Recalled" : "Updated"}</span>
+        </div>
+        {intent === "read"
+          ? <ReadCall entry={entry} input={input} />
+          : intent === "edit" || intent === "create" || intent === "delete"
+            ? <FileChangeCall entry={entry} input={input} intent={intent} />
+            : <StructuredCall entry={entry} input={input} intent={intent} />}
+      </div>
+    );
+  }
+
+  const prompt = activity.kind === "skill"
+    ? stringValue(input, "args")
+    : stringValue(input, "prompt", "description");
+  const rows = Object.entries(input ?? {})
+    .filter(([key, value]) => key !== "args" && ["string", "number", "boolean"].includes(typeof value))
+    .filter(([, value]) => String(value).length < 220)
+    .slice(0, 5);
+
+  return (
+    <div className="activity-tool-card" data-kind={activity.kind}>
+      <header>
+        <span className="activity-tool-kind"><Icon name={activity.kind === "skill" ? "skill" : "mcp"} size="sm" />{activity.kind === "skill" ? "Skill" : "MCP"}</span>
+        <strong>{activity.kind === "skill" ? activity.label : humanize(activity.label)}</strong>
+        {activity.kind === "mcp" ? <code>{humanize(activity.operation)}</code> : null}
+      </header>
+      {prompt ? <div className="activity-tool-prompt"><MarkdownContent value={prompt} /></div> : null}
+      {rows.length > 0 ? <dl>{rows.map(([key, value]) => <div key={key}><dt>{humanize(key)}</dt><dd>{String(value)}</dd></div>)}</dl> : null}
+      <footer><TechnicalLabel entry={entry} /><RawArguments input={entry.input} /></footer>
+    </div>
+  );
+}
+
 export function ToolCallBody({ entry }: { entry: ToolCallEntry }) {
   const input = asRecord(entry.input);
+  if (entry.activity?.kind === "skill" || entry.activity?.kind === "mcp" || entry.activity?.kind === "memory") {
+    return <ActivityToolCall entry={entry} input={input} />;
+  }
   const intent = toolIntent(entry);
   switch (intent) {
     case "command": return <CommandCall entry={entry} input={input} />;
@@ -466,6 +527,7 @@ export function ToolResultBody({ entry, call }: {
   const clipped = text.length > 12_000 ? `${text.slice(0, 12_000)}\n… output clipped in this view` : text;
   const callInput = call ? asRecord(call.input) : null;
   const sourcePath = stringValue(callInput, "file_path", "path", "notebook_path");
+  const activityKind = call?.activity?.kind;
 
   if (intent === "agent" && stringValue(asRecord(entry.content), "taskId")) {
     return <AgentResult entry={entry} text={text} />;
@@ -481,9 +543,17 @@ export function ToolResultBody({ entry, call }: {
   }
 
   return (
-    <div className={`tool-surface result-surface result-${intent}${entry.isError ? " is-error" : ""}`}>
+    <div className={`tool-surface result-surface result-${activityKind ?? intent}${entry.isError ? " is-error" : ""}`}>
       <div className="tool-card-bar">
-        <span>{entry.isError ? "Error output" : call ? `From ${call.name}` : "Result data"}</span>
+        <span>{entry.isError
+          ? "Error output"
+          : activityKind === "skill"
+            ? "Loaded skill instructions"
+            : activityKind === "mcp"
+              ? `Response from ${call?.activity?.label ?? "MCP"}`
+              : activityKind === "memory"
+                ? "Claude memory"
+                : call ? `From ${call.name}` : "Result data"}</span>
         <CopyButton value={text} label="Copy output" />
       </div>
       <pre>{intent === "read" && sourcePath

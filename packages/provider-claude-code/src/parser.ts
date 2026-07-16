@@ -1,6 +1,7 @@
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import type {
+  EntryActivity,
   Track,
   TrackDiagnostic,
   TrackEntry,
@@ -103,6 +104,223 @@ function toolCategory(name: string): ToolCallEntry["category"] {
   return "other";
 }
 
+function toolInputRecord(value: unknown): UnknownRecord | null {
+  return isRecord(value) ? value : null;
+}
+
+function toolInputPath(value: unknown): string | null {
+  const input = toolInputRecord(value);
+  return asString(input?.file_path) ?? asString(input?.path) ?? asString(input?.notebook_path);
+}
+
+function isClaudeMemoryPath(value: string): boolean {
+  const normalized = value.replaceAll("\\", "/");
+  return /\/\.claude\/projects\/[^/]+\/memory\//i.test(normalized)
+    || /\/\.claude\/memory\//i.test(normalized);
+}
+
+function mcpParts(name: string): { server: string; tool: string } | null {
+  if (!name.startsWith("mcp__")) return null;
+  const [, server, ...toolParts] = name.split("__");
+  if (!server) return null;
+  return { server, tool: toolParts.join("__") || "tool" };
+}
+
+function activityForTool(name: string, input: unknown): EntryActivity | undefined {
+  if (name === "Skill") {
+    const skill = asString(toolInputRecord(input)?.skill) ?? "Skill";
+    return {
+      kind: "skill",
+      label: skill,
+      operation: "invoke",
+      data: {
+        skill,
+        args: asString(toolInputRecord(input)?.args),
+      },
+    };
+  }
+
+  const mcp = mcpParts(name);
+  if (mcp) {
+    return {
+      kind: "mcp",
+      label: mcp.server,
+      operation: mcp.tool,
+      data: mcp,
+    };
+  }
+
+  const path = toolInputPath(input);
+  if (path && isClaudeMemoryPath(path)) {
+    const category = toolCategory(name);
+    return {
+      kind: "memory",
+      label: path.split(/[\\/]/).filter(Boolean).at(-1) ?? "Memory",
+      operation: category === "read" ? "read" : "write",
+      data: { path, tool: name },
+    };
+  }
+
+  return undefined;
+}
+
+function parseTagAttributes(source: string): Record<string, string> {
+  const attributes: Record<string, string> = {};
+  const pattern = /([A-Za-z_:][-A-Za-z0-9_:]*)\s*=\s*"([^"]*)"/g;
+  for (const match of source.matchAll(pattern)) {
+    const [, key, value] = match;
+    if (key && value !== undefined) attributes[key] = value;
+  }
+  return attributes;
+}
+
+function parseChannelMessage(value: string): { text: string; activity: EntryActivity } | null {
+  const match = value.trim().match(/^<channel\b([^>]*)>([\s\S]*)<\/channel>\s*$/);
+  if (!match) return null;
+  const attributes = parseTagAttributes(match[1] ?? "");
+  const source = attributes.source?.trim() || "Channel";
+  return {
+    text: (match[2] ?? "").trim(),
+    activity: {
+      kind: "channel",
+      label: source,
+      operation: "received",
+      data: {
+        source,
+        topic: attributes.topic ?? null,
+      },
+    },
+  };
+}
+
+function parseCommandMessage(value: string): { label: string; detail: string | null; activity: EntryActivity } | null {
+  const source = value.trim();
+  if (!source.startsWith("<command-name>")) return null;
+  const name = taggedValue(source, "command-name");
+  if (!name) return null;
+  const label = name.startsWith("/") ? name : `/${name}`;
+  const args = taggedValue(source, "command-args");
+  return {
+    label,
+    detail: args,
+    activity: {
+      kind: "command",
+      label,
+      operation: "invoke",
+      data: { command: label, args },
+    },
+  };
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.map((item) => asString(item)).filter((item): item is string => Boolean(item))
+    : [];
+}
+
+function activityEntryFromAttachment(
+  record: UnknownRecord,
+  lineNumber: number,
+  sequence: number,
+): TrackEntry | null {
+  const attachment = isRecord(record.attachment) ? record.attachment : null;
+  const type = asString(attachment?.type);
+  if (!attachment || !type) return null;
+
+  if (type === "invoked_skills") {
+    const skills = Array.isArray(attachment.skills)
+      ? attachment.skills.flatMap((item) => {
+          if (!isRecord(item)) return [];
+          const name = asString(item.name);
+          return name ? [name] : [];
+        })
+      : [];
+    return {
+      ...entryBase(record, lineNumber, 0, sequence),
+      kind: "status",
+      label: skills.length === 1 ? `Loaded ${skills[0]}` : `Loaded ${skills.length} skills`,
+      detail: null,
+      tone: "neutral",
+      activity: {
+        kind: "skill",
+        label: skills[0] ?? "Skills",
+        operation: "load",
+        data: { skills },
+      },
+    };
+  }
+
+  if (type === "mcp_instructions_delta") {
+    const added = stringArray(attachment.addedNames);
+    const removed = stringArray(attachment.removedNames);
+    return {
+      ...entryBase(record, lineNumber, 0, sequence),
+      kind: "status",
+      label: "MCP context updated",
+      detail: null,
+      tone: "neutral",
+      activity: {
+        kind: "mcp",
+        label: added[0] ?? removed[0] ?? "MCP",
+        operation: "instructions",
+        data: { added, removed },
+      },
+    };
+  }
+
+  if (type === "nested_memory") {
+    const path = asString(attachment.path);
+    const displayPath = asString(attachment.displayPath) ?? path;
+    return {
+      ...entryBase(record, lineNumber, 0, sequence),
+      kind: "status",
+      label: "Loaded project memory",
+      detail: displayPath,
+      tone: "neutral",
+      activity: {
+        kind: "memory",
+        label: displayPath?.split(/[\\/]/).filter(Boolean).at(-1) ?? "Project memory",
+        operation: "load",
+        data: { path, displayPath },
+      },
+    };
+  }
+
+  if (type.startsWith("hook_")) {
+    const hookName = asString(attachment.hookName) ?? "Hook";
+    const hookEvent = asString(attachment.hookEvent) ?? "Lifecycle event";
+    const isError = type.includes("error");
+    const detail = asString(attachment.content)
+      ?? asString(attachment.stderr)
+      ?? (type === "hook_additional_context" ? "Additional context supplied to Claude." : null);
+    return {
+      ...entryBase(record, lineNumber, 0, sequence),
+      kind: "status",
+      label: `${hookEvent} · ${hookName}`,
+      detail,
+      tone: isError ? (type === "hook_blocking_error" ? "danger" : "warning") : "neutral",
+      activity: {
+        kind: "hook",
+        label: hookName,
+        operation: type.replace(/^hook_/, ""),
+        data: {
+          hookName,
+          hookEvent,
+          toolUseId: asString(attachment.toolUseID),
+          durationMs: typeof attachment.durationMs === "number" ? attachment.durationMs : null,
+          exitCode: typeof attachment.exitCode === "number" ? attachment.exitCode : null,
+          timedOut: attachment.timedOut === true,
+          command: asString(attachment.command),
+          stdout: asString(attachment.stdout),
+          stderr: asString(attachment.stderr),
+        },
+      },
+    };
+  }
+
+  return null;
+}
+
 function entryBase(
   record: UnknownRecord,
   lineNumber: number,
@@ -169,6 +387,27 @@ function entriesFromMessageRecord(
         },
       ];
     }
+    const channelMessage = recordType === "user" ? parseChannelMessage(content) : null;
+    if (channelMessage) {
+      return [{
+        ...entryBase(record, lineNumber, 0, sequenceStart),
+        kind: "message",
+        role: "user",
+        text: channelMessage.text,
+        activity: channelMessage.activity,
+      }];
+    }
+    const commandMessage = recordType === "user" ? parseCommandMessage(content) : null;
+    if (commandMessage) {
+      return [{
+        ...entryBase(record, lineNumber, 0, sequenceStart),
+        kind: "status",
+        label: commandMessage.label,
+        detail: commandMessage.detail,
+        tone: "neutral",
+        activity: commandMessage.activity,
+      }];
+    }
     return [
       {
         ...entryBase(record, lineNumber, 0, sequenceStart),
@@ -226,6 +465,7 @@ function entriesFromMessageRecord(
         name,
         category: toolCategory(name),
         input: block.input ?? null,
+        activity: activityForTool(name, block.input),
       });
     } else if (blockType === "tool_result") {
       entries.push({
@@ -269,6 +509,16 @@ function entriesFromRecord(
   const recordType = readRecordType(record);
   if (recordType === "user" || recordType === "assistant") {
     if (record.isMeta === true) {
+      const content = readMessage(record)?.content;
+      const knownStructuredMetadata = typeof content === "string"
+        && (
+          parseTaskNotification(content) !== null
+          || parseChannelMessage(content) !== null
+          || parseCommandMessage(content) !== null
+        );
+      if (knownStructuredMetadata) {
+        return entriesFromMessageRecord(record, lineNumber, sequenceStart);
+      }
       return [
         unsupportedEntry(
           record,
@@ -285,6 +535,8 @@ function entriesFromRecord(
   if (recordType === "system") {
     const subtype = asString(record.subtype);
     const detail = asString(record.message) ?? asString(record.content);
+    const hookSummary = subtype === "stop_hook_summary";
+    const localCommand = subtype === "local_command";
     return [
       {
         ...entryBase(record, lineNumber, 0, sequenceStart),
@@ -292,8 +544,31 @@ function entriesFromRecord(
         label: subtype ? `System · ${subtype}` : "System event",
         detail,
         tone: record.level === "error" ? "danger" : "neutral",
+        activity: hookSummary
+          ? {
+              kind: "hook",
+              label: "Stop hooks",
+              operation: "summary",
+              data: {
+                hookCount: typeof record.hookCount === "number" ? record.hookCount : null,
+                preventedContinuation: record.preventedContinuation === true,
+                stopReason: asString(record.stopReason),
+              },
+            }
+          : localCommand
+            ? {
+                kind: "command",
+                label: "Local command",
+                operation: "result",
+              }
+            : undefined,
       },
     ];
+  }
+
+  if (recordType === "attachment") {
+    const activityEntry = activityEntryFromAttachment(record, lineNumber, sequenceStart);
+    if (activityEntry) return [activityEntry];
   }
 
   return [

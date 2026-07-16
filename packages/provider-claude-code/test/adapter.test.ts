@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { rm } from "node:fs/promises";
+import { TrackSchema } from "@tracks/core-model";
 import { ClaudeCodeAdapter } from "../src/index.js";
 
 const fixturePath = join(
@@ -195,5 +196,106 @@ describe("ClaudeCodeAdapter", () => {
     expect(track.entries.some((entry) =>
       entry.kind === "message" && entry.text.includes("<widget mode=\"compact\">")
     )).toBe(true);
+  });
+
+  it("normalizes Claude-specific activity without exposing transport wrappers", async () => {
+    const sourceRoot = await createSource();
+    const sessionPath = join(sourceRoot, "example-project", "fixture-session.jsonl");
+    const timestamp = "2026-07-16T08:01:00.000Z";
+    await appendFile(
+      sessionPath,
+      [
+        {
+          type: "assistant",
+          uuid: "skill-call",
+          timestamp,
+          message: { content: [{ type: "tool_use", id: "skill-1", name: "Skill", input: { skill: "review", args: "src" } }] },
+        },
+        {
+          type: "assistant",
+          uuid: "mcp-call",
+          timestamp,
+          message: { content: [{ type: "tool_use", id: "mcp-1", name: "mcp__github__search_code", input: { query: "activity" } }] },
+        },
+        {
+          type: "assistant",
+          uuid: "memory-call",
+          timestamp,
+          message: { content: [{ type: "tool_use", id: "memory-1", name: "Read", input: { file_path: "/Users/test/.claude/projects/example/memory/MEMORY.md" } }] },
+        },
+        {
+          type: "user",
+          uuid: "channel-message",
+          timestamp,
+          isMeta: true,
+          userType: "external",
+          message: { content: '<channel source="loco" id="private" topic="build">Build finished.</channel>' },
+        },
+        {
+          type: "user",
+          uuid: "command-message",
+          timestamp,
+          message: { content: "<command-name>/model</command-name><command-message>model</command-message><command-args>opus</command-args>" },
+        },
+        {
+          type: "attachment",
+          uuid: "skill-attachment",
+          timestamp,
+          attachment: { type: "invoked_skills", skills: [{ name: "review", path: "/private/skill", content: "private instructions" }] },
+        },
+        {
+          type: "attachment",
+          uuid: "hook-attachment",
+          timestamp,
+          attachment: { type: "hook_success", hookName: "format", hookEvent: "PostToolUse", durationMs: 42, exitCode: 0, command: "format", stdout: "done" },
+        },
+        {
+          type: "attachment",
+          uuid: "memory-attachment",
+          timestamp,
+          attachment: { type: "nested_memory", path: "/private/CLAUDE.md", displayPath: "CLAUDE.md", content: {} },
+        },
+        {
+          type: "attachment",
+          uuid: "mcp-attachment",
+          timestamp,
+          attachment: { type: "mcp_instructions_delta", addedNames: ["github"], addedBlocks: [], removedNames: [] },
+        },
+      ].map((record) => JSON.stringify(record)).join("\n") + "\n",
+      "utf8",
+    );
+
+    const adapter = new ClaudeCodeAdapter({ sourceRoot });
+    const descriptor = (await adapter.scan()).tracks[0];
+    expect(descriptor).toBeDefined();
+    if (!descriptor) return;
+
+    const track = await adapter.loadTrack(descriptor, { entryLimit: 100 });
+    expect(TrackSchema.safeParse(track).success).toBe(true);
+    expect(track.entries.filter((entry) => entry.activity).map((entry) => entry.activity?.kind)).toEqual([
+      "skill",
+      "mcp",
+      "memory",
+      "channel",
+      "command",
+      "skill",
+      "hook",
+      "memory",
+      "mcp",
+    ]);
+    expect(track.entries.find((entry) => entry.id.startsWith("channel-message"))).toMatchObject({
+      kind: "message",
+      text: "Build finished.",
+      activity: { kind: "channel", label: "loco", operation: "received" },
+    });
+    expect(track.entries.some((entry) => entry.kind === "message" && entry.text.includes("<channel"))).toBe(false);
+    expect(track.entries.find((entry) => entry.id.startsWith("command-message"))).toMatchObject({
+      kind: "status",
+      label: "/model",
+      detail: "opus",
+      activity: { kind: "command", operation: "invoke" },
+    });
+    const invokedSkills = track.entries.find((entry) => entry.id.startsWith("skill-attachment"));
+    expect(invokedSkills?.activity?.data).toEqual({ skills: ["review"] });
   });
 });

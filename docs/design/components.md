@@ -172,6 +172,8 @@ Filters operate on canonical event kinds, not provider names. They support:
 
 Filtering should not destroy scroll position. When the selected entry is filtered out, move selection to the nearest visible entry and announce the change.
 
+Full view separates broad evidence controls from provider-neutral activity facets. Skills, MCP, Channels, Hooks, memory, and interactive commands each have an independent rectangular filter with a loaded-slice count. Activity controls own their related call/result pair or inbound/status event, while ordinary tool-operation filters continue to govern non-activity file, shell, search, agent, and integration tools. This prevents a Skill invocation from being hidden behind both “Other tool” and “Status” switches.
+
 The track search field lives in the sticky workspace header rather than the wide-only details rail. This keeps it reachable while reading long tracks and at breakpoints where the rail is hidden. Search terms are ephemeral local UI state and are not added to copied session URLs. Match counts explicitly describe the loaded projection; when later pages remain, the track provides a “Search more entries” continuation instead of silently materializing the complete source in browser memory.
 
 ### InfiniteLoadSentinel
@@ -331,6 +333,14 @@ Unsupported provider data is visible, compact, and inspectable:
 - Line numbers only when they add reference value.
 - Maximum initial height with explicit expansion for very long snippets.
 - Plain-text fallback while highlighting loads or fails.
+
+### DiagramRenderer
+
+- Detects explicit diagram fence languages rather than guessing from ordinary code.
+- Renders Mermaid and Graphviz/DOT locally and lazily near the viewport.
+- Sanitizes generated SVG and displays it in a scriptless sandbox with network access blocked.
+- Provides source/preview, copy, and bounded zoom controls without obscuring the diagram.
+- Keeps malformed, oversized, PlantUML, D2, Nomnoml, and Svgbob input inspectable as source when no safe local renderer is available.
 
 ### DiffViewer
 

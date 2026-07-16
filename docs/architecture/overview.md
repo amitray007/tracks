@@ -80,6 +80,7 @@ Each layer has a distinct responsibility:
 - **Provider records** retain Claude Code's actual names, identifiers, ordering, and storage behavior.
 - **The adapter** maps provider meaning into canonical entries. It preserves the original provider term and emits unsupported evidence when a safe mapping is not justified.
 - **The canonical model** describes facts such as a message, invocation, result, process execution, file change, status, or error. It also describes what is unavailable, partial, redacted, or unknown.
+- **Activity facets** add orthogonal, provider-neutral meaning without duplicating chronology. Claude Code Skills, MCP, Channels, Hooks, memory access, and interactive commands remain messages/tools/results/status entries while carrying a bounded activity kind, label, operation, and minimal structured metadata.
 - **View models** combine related canonical facts for presentation, such as a tool call and later result, without changing source chronology.
 - **Components** render minimum valid data first and progressively add optional metadata. They do not branch on `providerId`.
 
@@ -99,6 +100,7 @@ The table separates the implemented Claude foundation from later candidates so t
 | Icons | Semantic `Icon` registry backed initially by `@hugeicons/react` and `@hugeicons/core-free-icons` | A richer provider-neutral glyph set without coupling shared components to a vendor package |
 | Provider marks | Static tree-independent assets from Lobe Icons | Claude identity is visually distinct from provider-neutral event icons |
 | Markdown | `react-markdown` plus GFM with raw HTML disabled | Safe current transcript rendering; streaming-specific parsing can be evaluated later |
+| Diagrams | Lazy Mermaid and Viz.js renderers in a scriptless, network-blocked SVG sandbox | Covers observed Mermaid and Graphviz/DOT fences while preserving safe source fallbacks |
 | Highlighting | Lazy-loaded `prism-react-renderer` | Syntax color without blocking the initial session-library bundle |
 | Diffs | Purpose-built split renderer for Claude edit/write evidence | Correct `+`/`−`, line gutters, responsive stacking, and syntax-aware old/new panes |
 | Virtualization | Candidate: `@tanstack/react-virtual` | Needed after measuring very long complete traces and scroll anchoring |
@@ -170,6 +172,8 @@ sequenceDiagram
 6. Raw provider data remains referenced by source location or stored in an explicitly bounded cache.
 
 Normalization is allowed to be richer or poorer per session. A missing optional value is not synthesized. When absence affects user understanding, the adapter emits an explicit capability state or diagnostic so the UI can distinguish unsupported, absent, redacted, partial, and failed data.
+
+Activity facets are derived during bounded parsing and are not a second persisted transcript. The local source remains authoritative; the derived index may store the facet and policy-approved searchable labels, while hook output, channel attributes, skill bodies, memory contents, and raw MCP payloads remain source-referenced or explicitly bounded. Static sharing applies its normal redaction policy before any activity metadata enters a bundle.
 
 ### Query
 

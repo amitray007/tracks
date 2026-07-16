@@ -82,6 +82,7 @@ Priority levels:
 | TRK-13 | P0 | Provide compact and full URL-addressable views over the same canonical evidence and preserve entry anchors when switching. |
 | TRK-14 | P0 | Make compact view deterministic and reversible: grouped/collapsed mechanics always link to their full entries and are not silently discarded. |
 | TRK-15 | P1 | Provide an always-available, accessible way to jump to the top or bottom of long Compact and Full traces without changing trace order. |
+| TRK-16 | P0 | Normalize and independently filter Skills, MCP, Channels, Hooks, Claude memory access, and interactive Claude Code commands without duplicating their canonical message/tool/result/status evidence. |
 
 ### Specialized rendering
 
@@ -96,6 +97,8 @@ Priority levels:
 | RND-07 | P1 | Render large structured arguments/results as an accessible collapsible tree. |
 | RND-08 | P1 | Offload expensive diffing/highlighting from the main thread. |
 | RND-09 | P0 | Keep huge entry bodies outside normal entry payloads and retrieve them through bounded artifact/result views on demand. |
+| RND-10 | P1 | Render Mermaid and Graphviz/DOT fences as locally generated, sandboxed diagrams with source, copy, zoom, malformed-input fallback, and source-only handling for recognized unsupported formats. |
+| RND-11 | P0 | Give Skills, MCP calls, channel messages, hook outcomes, memory reads/edits, and interactive commands distinct compact renderers with raw provider detail available through progressive disclosure. |
 
 ### Live sessions
 
