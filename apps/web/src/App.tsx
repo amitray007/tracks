@@ -323,8 +323,6 @@ function SessionRow({
           <ClaudeCodeIcon size={12} />
           <span className="sr-only">{track.providerLabel}</span>
         </span>
-        <span aria-hidden="true">·</span>
-        {formatBytes(track.sourceBytes)}
       </span>
     </button>
   );
