@@ -31,6 +31,12 @@ const ENTRY_FILTERS: ReadonlyArray<{
 ];
 
 const ALL_ENTRY_FILTERS = ENTRY_FILTERS.map(({ id }) => id);
+const DEFAULT_ENTRY_FILTERS: ReadonlyArray<EntryFilter> = [
+  "messages",
+  "reasoning",
+  "tools",
+  "results",
+];
 
 function filterForEntry(entry: TrackEntry): EntryFilter {
   switch (entry.kind) {
@@ -53,7 +59,7 @@ function readFiltersFromLocation(): Set<EntryFilter> {
   const known = values.filter((value): value is EntryFilter =>
     ALL_ENTRY_FILTERS.includes(value as EntryFilter),
   );
-  return new Set(known.length > 0 ? known : ALL_ENTRY_FILTERS);
+  return new Set(known.length > 0 ? known : DEFAULT_ENTRY_FILTERS);
 }
 
 function formatRelativeTime(value: string): string {
@@ -94,6 +100,12 @@ function summarizeInput(input: unknown): string {
   }
 }
 
+function commandText(entry: ToolCallEntry): string | null {
+  if (entry.category !== "command" || !entry.input || typeof entry.input !== "object") return null;
+  const command = (entry.input as Record<string, unknown>).command;
+  return typeof command === "string" && command.trim() ? command : null;
+}
+
 function contentText(content: unknown): string {
   if (typeof content === "string") return content;
   if (content === null || content === undefined) return "No result content";
@@ -104,12 +116,67 @@ function contentText(content: unknown): string {
   }
 }
 
+async function copyText(value: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {
+    const input = document.createElement("textarea");
+    input.value = value;
+    input.setAttribute("readonly", "");
+    input.style.position = "fixed";
+    input.style.opacity = "0";
+    document.body.append(input);
+    input.select();
+    try {
+      return document.execCommand("copy");
+    } finally {
+      input.remove();
+    }
+  }
+}
+
 function toolIcon(entry: ToolCallEntry): IconName {
   if (entry.category === "command") return "command";
   if (entry.category === "write") return "write";
   if (entry.category === "agent") return "agent";
   if (entry.category === "search" || entry.category === "read") return "search";
   return "tool";
+}
+
+function toolAction(entry: ToolCallEntry): string {
+  switch (entry.category) {
+    case "command": return "Ran";
+    case "read": return "Read";
+    case "search": return "Searched";
+    case "write": return "Edited";
+    case "agent": return "Used agent";
+    case "other": return "Used";
+  }
+}
+
+function toolTarget(entry: ToolCallEntry): string {
+  if (!entry.input || typeof entry.input !== "object" || Array.isArray(entry.input)) {
+    return entry.name;
+  }
+
+  const input = entry.input as Record<string, unknown>;
+  const preferredKeys = [
+    "description",
+    "file_path",
+    "path",
+    "query",
+    "pattern",
+    "command",
+    "prompt",
+  ];
+  const value = preferredKeys
+    .map((key) => input[key])
+    .find((candidate): candidate is string => typeof candidate === "string" && candidate.trim().length > 0);
+
+  if (!value) return entry.name;
+  const firstLine = value.trim().split("\n", 1)[0] ?? entry.name;
+  return firstLine.length > 92 ? `${firstLine.slice(0, 89)}…` : firstLine;
 }
 
 function entryPresentation(entry: TrackEntry): { icon: IconName; label: string; tone: string } {
@@ -123,7 +190,11 @@ function entryPresentation(entry: TrackEntry): { icon: IconName; label: string; 
     case "reasoning":
       return { icon: "reasoning", label: "Reasoning", tone: "reasoning" };
     case "tool_call":
-      return { icon: toolIcon(entry), label: entry.name, tone: entry.category };
+      return {
+        icon: toolIcon(entry),
+        label: `${toolAction(entry)} ${toolTarget(entry)}`,
+        tone: entry.category,
+      };
     case "tool_result":
       return entry.isError
         ? { icon: "error", label: "Tool error", tone: "danger" }
@@ -150,11 +221,23 @@ function EntryBody({ entry }: { entry: TrackEntry }) {
         </details>
       );
     case "tool_call":
+      if (commandText(entry)) {
+        return (
+          <div className="tool-surface command-surface">
+            <pre>{commandText(entry)}</pre>
+          </div>
+        );
+      }
       return (
-        <div className="tool-surface">
-          <div className="tool-caption">Arguments</div>
-          <pre>{summarizeInput(entry.input)}</pre>
-        </div>
+        <details className="tool-input-disclosure">
+          <summary>
+            <span>View arguments</span>
+            <Icon name="disclosure" size="xs" />
+          </summary>
+          <div className="tool-surface">
+            <pre>{summarizeInput(entry.input)}</pre>
+          </div>
+        </details>
       );
     case "tool_result": {
       const text = contentText(entry.content);
@@ -257,14 +340,26 @@ function IconButton({
 
 function ViewToggle({ mode, onChange }: { mode: ViewMode; onChange(mode: ViewMode): void }) {
   return (
-    <div className="view-toggle" role="group" aria-label="Track view">
-      <button type="button" data-active={mode === "compact"} onClick={() => onChange("compact")}>
+    <div className="view-toggle" role="tablist" aria-label="Session view">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={mode === "compact"}
+        data-active={mode === "compact"}
+        onClick={() => onChange("compact")}
+      >
         <Icon name="compact" size="sm" />
-        Compact
+        Highlights
       </button>
-      <button type="button" data-active={mode === "full"} onClick={() => onChange("full")}>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={mode === "full"}
+        data-active={mode === "full"}
+        onClick={() => onChange("full")}
+      >
         <Icon name="full" size="sm" />
-        Full
+        Full trace
       </button>
     </div>
   );
@@ -299,30 +394,34 @@ function SessionOverview({ track, mode }: { track: Track; mode: ViewMode }) {
   return (
     <section className="session-overview" aria-label="Loaded session overview">
       <header>
-        <span>Overview</span>
+        <span>Summary</span>
         <span className="overview-badge">
-          {mode === "compact"
-            ? `${Math.max(0, mechanics).toLocaleString()} mechanics collapsed`
-            : `${track.entries.length.toLocaleString()} entries loaded`}
+          <span />
+          {track.summary.state === "unknown" ? "Saved session" : track.summary.state}
         </span>
       </header>
       <div className="overview-rows">
         <div>
           <Icon name="message" size="sm" />
           <span>Conversation</span>
-          <strong>{userMessages} prompts · {assistantMessages} responses</strong>
+          <strong>{userMessages} prompts and {assistantMessages} responses in this loaded session.</strong>
         </div>
         <div>
           <Icon name="tool" size="sm" />
           <span>Work</span>
-          <strong>{toolCalls.length} calls · {uniqueTools} tools</strong>
+          <strong>{toolCalls.length} tool calls across {uniqueTools} distinct tools.</strong>
         </div>
         <div>
           <Icon name={errors > 0 ? "warning" : "status"} size="sm" />
-          <span>Exceptions</span>
-          <strong>{errors} errors · {providerEvents} provider-only</strong>
+          <span>Quality</span>
+          <strong>{errors} errors detected; {providerEvents} provider-specific events preserved.</strong>
         </div>
       </div>
+      <footer>
+        {mode === "compact"
+          ? `${Math.max(0, mechanics).toLocaleString()} implementation events hidden from Highlights`
+          : `${track.entries.length.toLocaleString()} normalized entries available in Full trace`}
+      </footer>
     </section>
   );
 }
@@ -423,6 +522,7 @@ export function App() {
   const [loadingTrack, setLoadingTrack] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   async function loadLibrary(refresh = false) {
@@ -563,6 +663,15 @@ export function App() {
     }
   }
 
+  async function copyLink() {
+    if (await copyText(window.location.href)) {
+      setLinkCopied(true);
+      window.setTimeout(() => setLinkCopied(false), 1_600);
+    } else {
+      setLinkCopied(false);
+    }
+  }
+
   const selectedSummary = library?.tracks.find((item) => item.id === selectedId) ?? null;
 
   return (
@@ -635,10 +744,9 @@ export function App() {
             </div>
           </div>
           <div className="workspace-actions">
-            <ViewToggle mode={mode} onChange={setMode} />
-            <button className="share-button" type="button" disabled title="Share workflow is the next product slice">
-              <Icon name="share" size="sm" />
-              Share
+            <button className="share-button" type="button" onClick={() => void copyLink()}>
+              <Icon name={linkCopied ? "status" : "link"} size="sm" />
+              {linkCopied ? "Copied" : "Copy link"}
             </button>
           </div>
         </header>
@@ -677,6 +785,7 @@ export function App() {
                     <span><span className="provider-dot" />{track.summary.providerLabel}</span>
                     <span>{formatBytes(track.summary.sourceBytes)}</span>
                   </div>
+                  <ViewToggle mode={mode} onChange={setMode} />
                 </header>
                 <SessionOverview track={track} mode={mode} />
                 {track.diagnostics.length > 0 ? (
