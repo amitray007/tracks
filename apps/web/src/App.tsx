@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useEffect,
   useMemo,
   useRef,
@@ -12,7 +13,19 @@ import type {
   ToolCallEntry,
 } from "@tracks/core-model";
 import { getTrack, getTrackLibrary, type TrackLibraryResponse } from "./api";
+import {
+  ToolCallBody,
+  ToolResultBody,
+  toolHeadline,
+  toolIcon,
+  toolResultHeadline,
+  toolIntent,
+  toolTone,
+  type ToolIntent,
+} from "./trace/ToolEvent";
+import { CopyButton } from "./ui/CopyButton";
 import { Icon, type IconName } from "./ui/Icon";
+import { MarkdownContent } from "./ui/MarkdownContent";
 
 type ViewMode = "compact" | "full";
 type EntryFilter = "messages" | "reasoning" | "tools" | "results" | "status" | "provider";
@@ -38,6 +51,26 @@ const DEFAULT_ENTRY_FILTERS: ReadonlyArray<EntryFilter> = [
   "results",
 ];
 
+const TOOL_FILTERS: ReadonlyArray<{
+  id: ToolIntent;
+  label: string;
+  icon: IconName;
+}> = [
+  { id: "read", label: "Read", icon: "read" },
+  { id: "edit", label: "Edit", icon: "edit" },
+  { id: "create", label: "Write", icon: "create" },
+  { id: "delete", label: "Delete", icon: "delete" },
+  { id: "command", label: "Run command", icon: "command" },
+  { id: "search", label: "Search", icon: "search" },
+  { id: "agent", label: "Agent", icon: "agent" },
+  { id: "question", label: "Questions", icon: "question" },
+  { id: "calendar", label: "Calendar", icon: "calendar" },
+  { id: "integration", label: "Integrations", icon: "integration" },
+  { id: "other", label: "Other tools", icon: "tool" },
+];
+
+const ALL_TOOL_FILTERS = TOOL_FILTERS.map(({ id }) => id);
+
 function filterForEntry(entry: TrackEntry): EntryFilter {
   switch (entry.kind) {
     case "message": return "messages";
@@ -62,6 +95,15 @@ function readFiltersFromLocation(): Set<EntryFilter> {
   return new Set(known.length > 0 ? known : DEFAULT_ENTRY_FILTERS);
 }
 
+function readToolFiltersFromLocation(): Set<ToolIntent> {
+  const values = new URLSearchParams(window.location.search).getAll("tool");
+  if (values.includes("none")) return new Set();
+  const known = values.filter((value): value is ToolIntent =>
+    ALL_TOOL_FILTERS.includes(value as ToolIntent),
+  );
+  return new Set(known.length > 0 ? known : ALL_TOOL_FILTERS);
+}
+
 function formatRelativeTime(value: string): string {
   const distance = Date.now() - Date.parse(value);
   const minutes = Math.floor(distance / 60_000);
@@ -74,6 +116,21 @@ function formatRelativeTime(value: string): string {
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(
     new Date(value),
   );
+}
+
+const SESSION_GROUPS = ["Today", "Yesterday", "Previous 7 days", "Older"] as const;
+type SessionGroupLabel = typeof SESSION_GROUPS[number];
+
+function sessionGroup(value: string): SessionGroupLabel {
+  const now = new Date();
+  const date = new Date(value);
+  const todayKey = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const dateKey = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const days = Math.round((todayKey - dateKey) / 86_400_000);
+  if (days <= 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days <= 7) return "Previous 7 days";
+  return "Older";
 }
 
 function formatDate(value: string | null): string {
@@ -90,96 +147,10 @@ function formatBytes(value: number): string {
   return `${(value / 1024 ** 2).toFixed(value >= 10 * 1024 ** 2 ? 0 : 1)} MB`;
 }
 
-function summarizeInput(input: unknown): string {
-  if (input === null || input === undefined) return "No arguments";
-  if (typeof input === "string") return input;
-  try {
-    return JSON.stringify(input, null, 2);
-  } catch {
-    return "Structured arguments are unavailable";
-  }
-}
-
-function commandText(entry: ToolCallEntry): string | null {
-  if (entry.category !== "command" || !entry.input || typeof entry.input !== "object") return null;
-  const command = (entry.input as Record<string, unknown>).command;
-  return typeof command === "string" && command.trim() ? command : null;
-}
-
-function contentText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (content === null || content === undefined) return "No result content";
-  try {
-    return JSON.stringify(content, null, 2);
-  } catch {
-    return "Structured result is unavailable";
-  }
-}
-
-async function copyText(value: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(value);
-    return true;
-  } catch {
-    const input = document.createElement("textarea");
-    input.value = value;
-    input.setAttribute("readonly", "");
-    input.style.position = "fixed";
-    input.style.opacity = "0";
-    document.body.append(input);
-    input.select();
-    try {
-      return document.execCommand("copy");
-    } finally {
-      input.remove();
-    }
-  }
-}
-
-function toolIcon(entry: ToolCallEntry): IconName {
-  if (entry.category === "command") return "command";
-  if (entry.category === "write") return "write";
-  if (entry.category === "agent") return "agent";
-  if (entry.category === "search" || entry.category === "read") return "search";
-  return "tool";
-}
-
-function toolAction(entry: ToolCallEntry): string {
-  switch (entry.category) {
-    case "command": return "Ran";
-    case "read": return "Read";
-    case "search": return "Searched";
-    case "write": return "Edited";
-    case "agent": return "Used agent";
-    case "other": return "Used";
-  }
-}
-
-function toolTarget(entry: ToolCallEntry): string {
-  if (!entry.input || typeof entry.input !== "object" || Array.isArray(entry.input)) {
-    return entry.name;
-  }
-
-  const input = entry.input as Record<string, unknown>;
-  const preferredKeys = [
-    "description",
-    "file_path",
-    "path",
-    "query",
-    "pattern",
-    "command",
-    "prompt",
-  ];
-  const value = preferredKeys
-    .map((key) => input[key])
-    .find((candidate): candidate is string => typeof candidate === "string" && candidate.trim().length > 0);
-
-  if (!value) return entry.name;
-  const firstLine = value.trim().split("\n", 1)[0] ?? entry.name;
-  return firstLine.length > 92 ? `${firstLine.slice(0, 89)}…` : firstLine;
-}
-
-function entryPresentation(entry: TrackEntry): { icon: IconName; label: string; tone: string } {
+function entryPresentation(
+  entry: TrackEntry,
+  relatedToolCall?: ToolCallEntry,
+): { icon: IconName; label: string; tone: string } {
   switch (entry.kind) {
     case "message":
       return entry.role === "user"
@@ -192,13 +163,17 @@ function entryPresentation(entry: TrackEntry): { icon: IconName; label: string; 
     case "tool_call":
       return {
         icon: toolIcon(entry),
-        label: `${toolAction(entry)} ${toolTarget(entry)}`,
-        tone: entry.category,
+        label: toolHeadline(entry),
+        tone: toolTone(entry),
       };
     case "tool_result":
       return entry.isError
         ? { icon: "error", label: "Tool error", tone: "danger" }
-        : { icon: "result", label: "Tool result", tone: "result" };
+        : {
+            icon: relatedToolCall ? toolIcon(relatedToolCall) : "result",
+            label: toolResultHeadline(relatedToolCall, false),
+            tone: relatedToolCall ? toolTone(relatedToolCall) : "result",
+          };
     case "status":
       return { icon: entry.tone === "danger" ? "error" : "status", label: entry.label, tone: entry.tone };
     case "unsupported":
@@ -206,10 +181,13 @@ function entryPresentation(entry: TrackEntry): { icon: IconName; label: string; 
   }
 }
 
-function EntryBody({ entry }: { entry: TrackEntry }) {
+function EntryBody({ entry, relatedToolCall }: {
+  entry: TrackEntry;
+  relatedToolCall: ToolCallEntry | undefined;
+}) {
   switch (entry.kind) {
     case "message":
-      return <div className="entry-prose">{entry.text || <span className="muted">Empty message</span>}</div>;
+      return <div className="entry-prose"><MarkdownContent value={entry.text} /></div>;
     case "reasoning":
       return (
         <details className="reasoning-disclosure">
@@ -217,38 +195,15 @@ function EntryBody({ entry }: { entry: TrackEntry }) {
             <span>{entry.availability === "available" ? "Show reasoning" : "Reasoning unavailable"}</span>
             <Icon name="disclosure" size="sm" />
           </summary>
-          {entry.text ? <div className="entry-prose reasoning-copy">{entry.text}</div> : null}
+          {entry.text ? <div className="entry-prose reasoning-copy"><MarkdownContent value={entry.text} /></div> : null}
         </details>
       );
     case "tool_call":
-      if (commandText(entry)) {
-        return (
-          <div className="tool-surface command-surface">
-            <pre>{commandText(entry)}</pre>
-          </div>
-        );
-      }
-      return (
-        <details className="tool-input-disclosure">
-          <summary>
-            <span>View arguments</span>
-            <Icon name="disclosure" size="xs" />
-          </summary>
-          <div className="tool-surface">
-            <pre>{summarizeInput(entry.input)}</pre>
-          </div>
-        </details>
-      );
-    case "tool_result": {
-      const text = contentText(entry.content);
-      return (
-        <div className={`tool-surface result-surface${entry.isError ? " is-error" : ""}`}>
-          <pre>{text.length > 8_000 ? `${text.slice(0, 8_000)}\n… output clipped in this view` : text}</pre>
-        </div>
-      );
-    }
+      return <ToolCallBody entry={entry} />;
+    case "tool_result":
+      return <ToolResultBody entry={entry} call={relatedToolCall} />;
     case "status":
-      return entry.detail ? <div className="entry-prose subtle-copy">{entry.detail}</div> : null;
+      return entry.detail ? <div className="entry-prose subtle-copy"><MarkdownContent value={entry.detail} /></div> : null;
     case "unsupported":
       return (
         <div className="unsupported-copy">
@@ -259,8 +214,11 @@ function EntryBody({ entry }: { entry: TrackEntry }) {
   }
 }
 
-function EntryFrame({ entry }: { entry: TrackEntry }) {
-  const presentation = entryPresentation(entry);
+function EntryFrame({ entry, relatedToolCall }: {
+  entry: TrackEntry;
+  relatedToolCall: ToolCallEntry | undefined;
+}) {
+  const presentation = entryPresentation(entry, relatedToolCall);
   return (
     <article className={`entry entry-${entry.kind} tone-${presentation.tone}`} id={`entry-${entry.id}`}>
       <div className="entry-rail" aria-hidden="true">
@@ -271,15 +229,18 @@ function EntryFrame({ entry }: { entry: TrackEntry }) {
       <div className="entry-content">
         <header className="entry-header">
           <span className="entry-label">{presentation.label}</span>
-          {entry.timestamp ? (
-            <time dateTime={entry.timestamp} title={formatDate(entry.timestamp)}>
-              {new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(
-                new Date(entry.timestamp),
-              )}
-            </time>
-          ) : null}
+          <span className="entry-actions">
+            {entry.timestamp ? (
+              <time dateTime={entry.timestamp} title={formatDate(entry.timestamp)}>
+                {new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(
+                  new Date(entry.timestamp),
+                )}
+              </time>
+            ) : null}
+            {entry.kind === "message" ? <CopyButton value={entry.text} label="Copy message" className="entry-copy" /> : null}
+          </span>
         </header>
-        <EntryBody entry={entry} />
+        <EntryBody entry={entry} relatedToolCall={relatedToolCall} />
       </div>
     </article>
   );
@@ -295,17 +256,23 @@ function SessionRow({
   onSelect(): void;
 }) {
   return (
-    <button className="session-row" data-selected={selected} onClick={onSelect} type="button">
-      <span className="session-row-topline">
-        <span className="session-project">{track.projectLabel}</span>
+    <button
+      className="session-row"
+      data-selected={selected}
+      aria-current={selected ? "page" : undefined}
+      onClick={onSelect}
+      type="button"
+    >
+      <span className="session-row-main">
+        <span className="session-title">{track.title}</span>
         <time dateTime={track.updatedAt} title={formatDate(track.updatedAt)}>
           {formatRelativeTime(track.updatedAt)}
         </time>
       </span>
-      <span className="session-title">{track.title}</span>
       <span className="session-meta">
-        <span className="provider-dot" aria-hidden="true" />
-        {track.providerLabel}
+        <span className="session-project"><Icon name="project" size="xs" />{track.projectLabel}</span>
+        <span aria-hidden="true">·</span>
+        <span><span className="provider-dot" aria-hidden="true" />{track.providerLabel}</span>
         <span aria-hidden="true">·</span>
         {formatBytes(track.sourceBytes)}
       </span>
@@ -430,16 +397,22 @@ function DetailsRail({
   track,
   mode,
   activeFilters,
+  activeToolFilters,
   filterCounts,
+  toolFilterCounts,
   onToggleFilter,
+  onToggleToolFilter,
   onResetFilters,
   onClearFilters,
 }: {
   track: Track;
   mode: ViewMode;
   activeFilters: ReadonlySet<EntryFilter>;
+  activeToolFilters: ReadonlySet<ToolIntent>;
   filterCounts: Record<EntryFilter, number>;
+  toolFilterCounts: Record<ToolIntent, number>;
   onToggleFilter(filter: EntryFilter): void;
+  onToggleToolFilter(filter: ToolIntent): void;
   onResetFilters(): void;
   onClearFilters(): void;
 }) {
@@ -470,18 +443,42 @@ function DetailsRail({
             {ENTRY_FILTERS.map((filter) => {
               const active = activeFilters.has(filter.id);
               return (
-                <button
-                  key={filter.id}
-                  type="button"
-                  aria-pressed={active}
-                  data-active={active}
-                  onClick={() => onToggleFilter(filter.id)}
-                >
-                  <span className="filter-mark" aria-hidden="true"><span /></span>
-                  <Icon name={filter.icon} size="sm" />
-                  <span>{filter.label}</span>
-                  <output>{filterCounts[filter.id]}</output>
-                </button>
+                <Fragment key={filter.id}>
+                  <button
+                    type="button"
+                    aria-label={`${filter.label}, ${filterCounts[filter.id]}`}
+                    aria-pressed={active}
+                    data-active={active}
+                    onClick={() => onToggleFilter(filter.id)}
+                  >
+                    <span className="filter-mark" aria-hidden="true"><span /></span>
+                    <Icon name={filter.icon} size="sm" />
+                    <span>{filter.label}</span>
+                    <output>{filterCounts[filter.id]}</output>
+                  </button>
+                  {filter.id === "tools" ? (
+                    <div className="tool-filter-list" aria-label="Tool types">
+                      {TOOL_FILTERS.filter((toolFilter) => toolFilterCounts[toolFilter.id] > 0).map((toolFilter) => {
+                        const toolActive = activeToolFilters.has(toolFilter.id);
+                        return (
+                          <button
+                            key={toolFilter.id}
+                            type="button"
+                            aria-label={`${toolFilter.label}, ${toolFilterCounts[toolFilter.id]}`}
+                            aria-pressed={toolActive}
+                            data-active={toolActive}
+                            onClick={() => onToggleToolFilter(toolFilter.id)}
+                          >
+                            <span className="filter-mark" aria-hidden="true"><span /></span>
+                            <Icon name={toolFilter.icon} size="sm" />
+                            <span>{toolFilter.label}</span>
+                            <output>{toolFilterCounts[toolFilter.id]}</output>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </Fragment>
               );
             })}
           </div>
@@ -516,13 +513,13 @@ export function App() {
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<ViewMode>(readModeFromLocation);
   const [activeFilters, setActiveFilters] = useState<Set<EntryFilter>>(readFiltersFromLocation);
+  const [activeToolFilters, setActiveToolFilters] = useState<Set<ToolIntent>>(readToolFiltersFromLocation);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [trackError, setTrackError] = useState<string | null>(null);
   const [loadingTrack, setLoadingTrack] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [linkCopied, setLinkCopied] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   async function loadLibrary(refresh = false) {
@@ -554,8 +551,16 @@ export function App() {
         if (activeFilters.has(filter)) url.searchParams.append("type", filter);
       }
     }
+    url.searchParams.delete("tool");
+    if (activeToolFilters.size === 0) {
+      url.searchParams.append("tool", "none");
+    } else if (activeToolFilters.size < ALL_TOOL_FILTERS.length) {
+      for (const filter of ALL_TOOL_FILTERS) {
+        if (activeToolFilters.has(filter)) url.searchParams.append("tool", filter);
+      }
+    }
     window.history.replaceState(null, "", url);
-  }, [activeFilters, mode]);
+  }, [activeFilters, activeToolFilters, mode]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -604,6 +609,20 @@ export function App() {
     );
   }, [library, query]);
 
+  const visibleTrackGroups = useMemo(() => {
+    const grouped = new Map<SessionGroupLabel, TrackSummary[]>();
+    for (const item of visibleTracks) {
+      const label = sessionGroup(item.updatedAt);
+      const group = grouped.get(label) ?? [];
+      group.push(item);
+      grouped.set(label, group);
+    }
+    return SESSION_GROUPS.flatMap((label) => {
+      const tracks = grouped.get(label);
+      return tracks?.length ? [{ label, tracks }] : [];
+    });
+  }, [visibleTracks]);
+
   const filterCounts = useMemo<Record<EntryFilter, number>>(() => {
     const counts: Record<EntryFilter, number> = {
       messages: 0,
@@ -617,6 +636,34 @@ export function App() {
     return counts;
   }, [track]);
 
+  const toolCallsById = useMemo(() => {
+    const calls = new Map<string, ToolCallEntry>();
+    for (const entry of track?.entries ?? []) {
+      if (entry.kind === "tool_call" && entry.toolUseId) calls.set(entry.toolUseId, entry);
+    }
+    return calls;
+  }, [track]);
+
+  const toolFilterCounts = useMemo<Record<ToolIntent, number>>(() => {
+    const counts: Record<ToolIntent, number> = {
+      command: 0,
+      read: 0,
+      search: 0,
+      edit: 0,
+      create: 0,
+      delete: 0,
+      agent: 0,
+      question: 0,
+      calendar: 0,
+      integration: 0,
+      other: 0,
+    };
+    for (const entry of track?.entries ?? []) {
+      if (entry.kind === "tool_call") counts[toolIntent(entry)] += 1;
+    }
+    return counts;
+  }, [track]);
+
   const visibleEntries = useMemo(() => {
     if (!track) return [];
     if (mode === "compact") {
@@ -626,11 +673,28 @@ export function App() {
         || (entry.kind === "status" && (entry.tone === "warning" || entry.tone === "danger")),
       );
     }
-    return track.entries.filter((entry) => activeFilters.has(filterForEntry(entry)));
-  }, [activeFilters, mode, track]);
+    return track.entries.filter((entry) => {
+      if (!activeFilters.has(filterForEntry(entry))) return false;
+      if (entry.kind === "tool_call") return activeToolFilters.has(toolIntent(entry));
+      if (entry.kind === "tool_result" && entry.toolUseId) {
+        const call = toolCallsById.get(entry.toolUseId);
+        return !call || activeToolFilters.has(toolIntent(call));
+      }
+      return true;
+    });
+  }, [activeFilters, activeToolFilters, mode, toolCallsById, track]);
 
   function toggleFilter(filter: EntryFilter) {
     setActiveFilters((current) => {
+      const next = new Set(current);
+      if (next.has(filter)) next.delete(filter);
+      else next.add(filter);
+      return next;
+    });
+  }
+
+  function toggleToolFilter(filter: ToolIntent) {
+    setActiveToolFilters((current) => {
       const next = new Set(current);
       if (next.has(filter)) next.delete(filter);
       else next.add(filter);
@@ -660,15 +724,6 @@ export function App() {
       setTrackError(error instanceof Error ? error.message : "Could not load more entries.");
     } finally {
       setLoadingMore(false);
-    }
-  }
-
-  async function copyLink() {
-    if (await copyText(window.location.href)) {
-      setLinkCopied(true);
-      window.setTimeout(() => setLinkCopied(false), 1_600);
-    } else {
-      setLinkCopied(false);
     }
   }
 
@@ -703,7 +758,7 @@ export function App() {
           <kbd>/</kbd>
         </div>
         <div className="library-section-heading">
-          <span>Recent sessions</span>
+          <span>{query.trim() ? `${visibleTracks.length.toLocaleString()} results` : "Sessions"}</span>
           <IconButton
             label="Refresh Claude sessions"
             icon="refresh"
@@ -719,13 +774,21 @@ export function App() {
           {library && visibleTracks.length === 0 ? (
             <div className="library-empty">No sessions match this search.</div>
           ) : null}
-          {visibleTracks.map((item) => (
-            <SessionRow
-              key={item.id}
-              track={item}
-              selected={item.id === selectedId}
-              onSelect={() => selectTrack(item.id)}
-            />
+          {visibleTrackGroups.map((group) => (
+            <section className="session-group" key={group.label} aria-label={group.label}>
+              <header className="session-group-heading">
+                <span>{group.label}</span>
+                <span>{group.tracks.length}</span>
+              </header>
+              {group.tracks.map((item) => (
+                <SessionRow
+                  key={item.id}
+                  track={item}
+                  selected={item.id === selectedId}
+                  onSelect={() => selectTrack(item.id)}
+                />
+              ))}
+            </section>
           ))}
         </div>
         <footer className="library-footer">
@@ -744,10 +807,7 @@ export function App() {
             </div>
           </div>
           <div className="workspace-actions">
-            <button className="share-button" type="button" onClick={() => void copyLink()}>
-              <Icon name={linkCopied ? "status" : "link"} size="sm" />
-              {linkCopied ? "Copied" : "Copy link"}
-            </button>
+            <CopyButton value={window.location.href} label="Copy link" className="share-button" />
           </div>
         </header>
 
@@ -795,7 +855,15 @@ export function App() {
                   </div>
                 ) : null}
                 <div className="trace" data-mode={mode}>
-                  {visibleEntries.map((entry) => <EntryFrame entry={entry} key={entry.id} />)}
+                  {visibleEntries.map((entry) => (
+                    <EntryFrame
+                      entry={entry}
+                      key={entry.id}
+                      relatedToolCall={entry.kind === "tool_result" && entry.toolUseId
+                        ? toolCallsById.get(entry.toolUseId)
+                        : undefined}
+                    />
+                  ))}
                   {visibleEntries.length === 0 ? (
                     <div className="trace-empty">
                       <span><Icon name="filter" size="lg" /></span>
@@ -803,9 +871,14 @@ export function App() {
                       <p>{mode === "compact" ? "Open Full view to inspect provider mechanics." : "Enable one or more evidence filters to continue."}</p>
                       <button
                         type="button"
-                        onClick={() => mode === "compact"
-                          ? setMode("full")
-                          : setActiveFilters(new Set(ALL_ENTRY_FILTERS))}
+                        onClick={() => {
+                          if (mode === "compact") {
+                            setMode("full");
+                          } else {
+                            setActiveFilters(new Set(ALL_ENTRY_FILTERS));
+                            setActiveToolFilters(new Set(ALL_TOOL_FILTERS));
+                          }
+                        }}
                       >
                         {mode === "compact" ? "Open Full view" : "Show all evidence"}
                       </button>
@@ -828,9 +901,15 @@ export function App() {
               track={track}
               mode={mode}
               activeFilters={activeFilters}
+              activeToolFilters={activeToolFilters}
               filterCounts={filterCounts}
+              toolFilterCounts={toolFilterCounts}
               onToggleFilter={toggleFilter}
-              onResetFilters={() => setActiveFilters(new Set(ALL_ENTRY_FILTERS))}
+              onToggleToolFilter={toggleToolFilter}
+              onResetFilters={() => {
+                setActiveFilters(new Set(ALL_ENTRY_FILTERS));
+                setActiveToolFilters(new Set(ALL_TOOL_FILTERS));
+              }}
               onClearFilters={() => setActiveFilters(new Set())}
             />
           ) : null}
