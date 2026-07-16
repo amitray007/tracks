@@ -177,7 +177,7 @@ Breakpoints describe layout behavior rather than device brands:
 
 ### Scroll ownership
 
-- The document owns vertical scrolling by default.
+- The workspace owns the primary session scroll, while the session library owns a separate contained list scroll so wheel and touch input never move both surfaces together.
 - Popovers, dialogs, command palette results, and very large raw payloads may own internal scroll regions.
 - Avoid nested vertical scroll areas inside normal entries.
 - Sticky controls must not cover anchored content when navigating by URL or keyboard.

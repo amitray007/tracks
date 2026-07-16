@@ -376,12 +376,11 @@ function SessionRow({
         </time>
       </span>
       <span className="session-meta">
-        <span className="session-project"><Icon name="project" size="xs" />{track.projectLabel}</span>
-        <span aria-hidden="true">·</span>
         <span className="session-provider" title={track.providerLabel}>
           <ClaudeCodeIcon size={12} />
           <span className="sr-only">{track.providerLabel}</span>
         </span>
+        <span className="session-project"><Icon name="project" size="xs" />{track.projectLabel}</span>
       </span>
     </button>
   );
@@ -484,17 +483,6 @@ function TraceSearch({
         autoComplete="off"
         spellCheck={false}
       />
-      <button
-        className="trace-search-mode"
-        type="button"
-        aria-label="Use regular expression"
-        title="Use regular expression"
-        aria-pressed={searchMode === "regex"}
-        data-active={searchMode === "regex"}
-        onClick={() => onSearchModeChange(searchMode === "regex" ? "text" : "regex")}
-      >
-        .*
-      </button>
       {active ? (
         <output id="trace-search-status" aria-live="polite" title="Matches in loaded entries">
           {error ? "Invalid" : `${matchCount}/${totalCount}`}
@@ -511,6 +499,17 @@ function TraceSearch({
           <Icon name="close" size="xs" />
         </button>
       ) : null}
+      <button
+        className="trace-search-mode"
+        type="button"
+        aria-label="Use regular expression"
+        title={searchMode === "regex" ? "Use plain text" : "Use regular expression"}
+        aria-pressed={searchMode === "regex"}
+        data-active={searchMode === "regex"}
+        onClick={() => onSearchModeChange(searchMode === "regex" ? "text" : "regex")}
+      >
+        .*
+      </button>
     </div>
   );
 }
@@ -563,11 +562,12 @@ function TraceJumpNavigation() {
     const update = () => {
       cancelAnimationFrame(animationFrame);
       animationFrame = requestAnimationFrame(() => {
-        const root = document.documentElement;
+        const root = document.querySelector<HTMLElement>(".workspace");
+        if (!root) return;
         const next = {
-          scrollable: root.scrollHeight > window.innerHeight + 16,
-          atTop: window.scrollY <= 8,
-          atBottom: window.scrollY + window.innerHeight >= root.scrollHeight - 8,
+          scrollable: root.scrollHeight > root.clientHeight + 16,
+          atTop: root.scrollTop <= 8,
+          atBottom: root.scrollTop + root.clientHeight >= root.scrollHeight - 8,
         };
         setScrollState((current) =>
           current.scrollable === next.scrollable
@@ -580,15 +580,20 @@ function TraceJumpNavigation() {
     };
 
     const resizeObserver = new ResizeObserver(update);
-    resizeObserver.observe(document.body);
-    window.addEventListener("scroll", update, { passive: true });
+    const root = document.querySelector<HTMLElement>(".workspace");
+    const content = document.querySelector<HTMLElement>(".workspace-body");
+    if (root) {
+      resizeObserver.observe(root);
+      root.addEventListener("scroll", update, { passive: true });
+    }
+    if (content) resizeObserver.observe(content);
     window.addEventListener("resize", update);
     update();
 
     return () => {
       cancelAnimationFrame(animationFrame);
       resizeObserver.disconnect();
-      window.removeEventListener("scroll", update);
+      root?.removeEventListener("scroll", update);
       window.removeEventListener("resize", update);
     };
   }, []);
@@ -603,7 +608,7 @@ function TraceJumpNavigation() {
         title="Jump to top"
         aria-controls="session-trace"
         disabled={scrollState.atTop}
-        onClick={() => window.scrollTo({ top: 0 })}
+        onClick={() => document.querySelector<HTMLElement>(".workspace")?.scrollTo({ top: 0 })}
       >
         <Icon name="up" size="sm" />
       </button>
@@ -613,7 +618,10 @@ function TraceJumpNavigation() {
         title="Jump to bottom"
         aria-controls="session-trace"
         disabled={scrollState.atBottom}
-        onClick={() => window.scrollTo({ top: document.documentElement.scrollHeight })}
+        onClick={() => {
+          const root = document.querySelector<HTMLElement>(".workspace");
+          root?.scrollTo({ top: root.scrollHeight });
+        }}
       >
         <Icon name="down" size="sm" />
       </button>
@@ -825,9 +833,6 @@ function DetailsRail({
             Latest first
           </button>
         </div>
-        <p className="rail-note trace-order-note" aria-live="polite">
-          {traceOrder === "latest" ? "Newest entries appear at the top." : "Provider order, oldest to newest."}
-        </p>
       </section>
     </aside>
   );
