@@ -1382,6 +1382,37 @@ code, pre, kbd {
 .tool-filter-list > button[data-active="true"] .filter-mark > span { background: var(--accent); }
 .slice-count { color: #e3e4e5; font-size: 19px; font-weight: 550; letter-spacing: -0.035em; }
 .rail-note { margin: 7px 0 0; line-height: 1.5; }
+.trace-order-control {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px;
+  padding: 2px;
+  background: #121314;
+  border: 1px solid #292b2e;
+  border-radius: 5px;
+}
+.trace-order-control button {
+  min-width: 0;
+  height: 27px;
+  padding: 0 5px;
+  color: #6f7277;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 520;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease, transform 120ms var(--ease-out);
+}
+.trace-order-control button:hover { color: #b7b9bc; }
+.trace-order-control button:active { transform: scale(0.98); }
+.trace-order-control button[data-active="true"] {
+  color: #d0d2d4;
+  background: #1d1e20;
+  border-color: #303236;
+}
+.trace-order-note { color: #686b70; }
 .live-indicator { width: 6px; height: 6px; display: inline-block; margin-right: 6px; background: var(--success); border-radius: 50%; }
 .live-indicator.live-connecting,
 .live-indicator.live-reconnecting { background: var(--warning); }

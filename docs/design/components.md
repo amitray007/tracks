@@ -130,13 +130,14 @@ Compact view is a deterministic narrative projection:
 
 ### FullTrackView
 
-Full view renders every canonical entry in provider order:
+Full view renders every canonical entry in provider order by default:
 
 - Uses a left filter/outline rail on wide layouts and an 820–880px chronology.
 - Preserves unsupported, parse, partial, status, and provider-specific evidence markers.
 - Applies progressive disclosure within entries but does not remove entries from chronology unless the user activates a filter.
 - Is the authoritative destination for cross-view evidence links.
 - Supports active/open-ended tracks through stable windowing and follow-tail behavior.
+- Offers a URL-addressable latest-first presentation without changing canonical sequence or tool relationships. The order choice is shared with Compact view.
 
 ### TrackHeader
 

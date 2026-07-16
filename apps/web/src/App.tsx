@@ -38,6 +38,7 @@ type ViewMode = "compact" | "full";
 type LiveState = "connecting" | "live" | "reconnecting";
 type EntryFilter = "messages" | "reasoning" | "tools" | "results" | "status" | "provider";
 type SidebarGroupMode = "time" | "project";
+type TraceOrder = "oldest" | "latest";
 
 const ENTRY_FILTERS: ReadonlyArray<{
   id: EntryFilter;
@@ -97,6 +98,10 @@ function readModeFromLocation(): ViewMode {
 
 function readSidebarGroupFromLocation(): SidebarGroupMode {
   return new URLSearchParams(window.location.search).get("group") === "project" ? "project" : "time";
+}
+
+function readTraceOrderFromLocation(): TraceOrder {
+  return new URLSearchParams(window.location.search).get("order") === "latest" ? "latest" : "oldest";
 }
 
 function readFiltersFromLocation(): Set<EntryFilter> {
@@ -442,6 +447,7 @@ function DetailsRail({
   track,
   mode,
   liveState,
+  traceOrder,
   activeFilters,
   activeToolFilters,
   filterCounts,
@@ -450,10 +456,12 @@ function DetailsRail({
   onToggleToolFilter,
   onResetFilters,
   onClearFilters,
+  onTraceOrderChange,
 }: {
   track: Track;
   mode: ViewMode;
   liveState: LiveState;
+  traceOrder: TraceOrder;
   activeFilters: ReadonlySet<EntryFilter>;
   activeToolFilters: ReadonlySet<ToolIntent>;
   filterCounts: Record<EntryFilter, number>;
@@ -462,6 +470,7 @@ function DetailsRail({
   onToggleToolFilter(filter: ToolIntent): void;
   onResetFilters(): void;
   onClearFilters(): void;
+  onTraceOrderChange(order: TraceOrder): void;
 }) {
   const capabilities = Object.entries(track.summary.capabilities).filter(([, available]) => available);
   return (
@@ -551,6 +560,30 @@ function DetailsRail({
         <div className="slice-count">{track.entries.length.toLocaleString()} entries</div>
         <p className="rail-note"><span className={`live-indicator live-${liveState}`} />{liveState === "live" ? "Watching the local session for changes." : "Reconnecting to local updates."}</p>
       </section>
+      <section>
+        <div className="rail-heading">Layout</div>
+        <div className="trace-order-control" role="group" aria-label="Trace order">
+          <button
+            type="button"
+            aria-pressed={traceOrder === "oldest"}
+            data-active={traceOrder === "oldest"}
+            onClick={() => onTraceOrderChange("oldest")}
+          >
+            Oldest first
+          </button>
+          <button
+            type="button"
+            aria-pressed={traceOrder === "latest"}
+            data-active={traceOrder === "latest"}
+            onClick={() => onTraceOrderChange("latest")}
+          >
+            Latest first
+          </button>
+        </div>
+        <p className="rail-note trace-order-note" aria-live="polite">
+          {traceOrder === "latest" ? "Newest entries appear at the top." : "Provider order, oldest to newest."}
+        </p>
+      </section>
     </aside>
   );
 }
@@ -568,6 +601,7 @@ export function App() {
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<ViewMode>(readModeFromLocation);
   const [sidebarGroup, setSidebarGroup] = useState<SidebarGroupMode>(readSidebarGroupFromLocation);
+  const [traceOrder, setTraceOrder] = useState<TraceOrder>(readTraceOrderFromLocation);
   const [activeFilters, setActiveFilters] = useState<Set<EntryFilter>>(readFiltersFromLocation);
   const [activeToolFilters, setActiveToolFilters] = useState<Set<ToolIntent>>(readToolFiltersFromLocation);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -642,6 +676,8 @@ export function App() {
     url.searchParams.set("view", mode);
     if (sidebarGroup === "project") url.searchParams.set("group", "project");
     else url.searchParams.delete("group");
+    if (traceOrder === "latest") url.searchParams.set("order", "latest");
+    else url.searchParams.delete("order");
     url.searchParams.delete("type");
     if (activeFilters.size === 0) {
       url.searchParams.append("type", "none");
@@ -659,7 +695,7 @@ export function App() {
       }
     }
     window.history.replaceState(null, "", url);
-  }, [activeFilters, activeToolFilters, mode, sidebarGroup]);
+  }, [activeFilters, activeToolFilters, mode, sidebarGroup, traceOrder]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -802,6 +838,11 @@ export function App() {
       return true;
     });
   }, [activeFilters, activeToolFilters, mode, toolCallsById, track]);
+
+  const orderedVisibleEntries = useMemo(
+    () => traceOrder === "latest" ? [...visibleEntries].reverse() : visibleEntries,
+    [traceOrder, visibleEntries],
+  );
 
   function toggleFilter(filter: EntryFilter) {
     setActiveFilters((current) => {
@@ -974,7 +1015,7 @@ export function App() {
                   </div>
                 ) : null}
                 <div className="trace" data-mode={mode}>
-                  {visibleEntries.map((entry) => (
+                  {orderedVisibleEntries.map((entry) => (
                     <EntryFrame
                       entry={entry}
                       key={entry.id}
@@ -1014,6 +1055,7 @@ export function App() {
               track={track}
               mode={mode}
               liveState={liveState}
+              traceOrder={traceOrder}
               activeFilters={activeFilters}
               activeToolFilters={activeToolFilters}
               filterCounts={filterCounts}
@@ -1025,6 +1067,7 @@ export function App() {
                 setActiveToolFilters(new Set(ALL_TOOL_FILTERS));
               }}
               onClearFilters={() => setActiveFilters(new Set())}
+              onTraceOrderChange={setTraceOrder}
             />
           ) : null}
         </div>

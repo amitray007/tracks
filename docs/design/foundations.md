@@ -162,7 +162,7 @@ Tracks defines named compositions rather than letting each screen invent a grid:
 
 Use approximately 48–64px between a persistent rail and the reading column on expansive layouts. The exact value should respond to available width, but the rail and transcript must not appear as one undifferentiated panel.
 
-Compact view is not a smaller font or a lossy transcript. It uses the same base reading typography, stable anchors, and renderer contracts while grouping related tool facts, collapsing low-signal output, and foregrounding the narrative. Full view restores every canonical and unsupported entry in chronological order.
+Compact view is not a smaller font or a lossy transcript. It uses the same base reading typography, stable anchors, and renderer contracts while grouping related tool facts, collapsing low-signal output, and foregrounding the narrative. Full view restores every canonical and unsupported entry. Both views default to chronological provider order and may reverse the presentation when the user selects latest-first; canonical sequence remains unchanged.
 
 ### Breakpoints
 
