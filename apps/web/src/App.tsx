@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
 import type {
@@ -719,6 +720,158 @@ function TraceJumpNavigation() {
         <Icon name="down" size="sm" />
       </button>
     </nav>
+  );
+}
+
+const SIDEBAR_GROUP_OPTIONS: ReadonlyArray<{
+  value: SidebarGroupMode;
+  label: string;
+  description: string;
+  icon: IconName;
+}> = [
+  { value: "time", label: "By time", description: "Newest activity first", icon: "calendar" },
+  { value: "project", label: "By project", description: "Group by workspace", icon: "project" },
+];
+
+function SessionGroupControl({
+  value,
+  onChange,
+}: {
+  value: SidebarGroupMode;
+  onChange: (value: SidebarGroupMode) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [animate, setAnimate] = useState(true);
+  const controlRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const selectedIndex = SIDEBAR_GROUP_OPTIONS.findIndex((option) => option.value === value);
+  const selectedOption = SIDEBAR_GROUP_OPTIONS[selectedIndex] ?? SIDEBAR_GROUP_OPTIONS[0]!;
+
+  useEffect(() => {
+    if (!open) return undefined;
+
+    const handleOutsidePointer = (event: PointerEvent) => {
+      if (controlRef.current?.contains(event.target as Node)) return;
+      setAnimate(true);
+      setOpen(false);
+    };
+
+    document.addEventListener("pointerdown", handleOutsidePointer);
+    return () => document.removeEventListener("pointerdown", handleOutsidePointer);
+  }, [open]);
+
+  function focusOption(index: number) {
+    requestAnimationFrame(() => optionRefs.current[index]?.focus());
+  }
+
+  function openFromKeyboard(index: number) {
+    setAnimate(false);
+    setOpen(true);
+    focusOption(index);
+  }
+
+  function handleTriggerKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      openFromKeyboard(selectedIndex);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      openFromKeyboard(SIDEBAR_GROUP_OPTIONS.length - 1);
+    }
+  }
+
+  function handleOptionKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>, index: number) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      focusOption((index + 1) % SIDEBAR_GROUP_OPTIONS.length);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      focusOption((index - 1 + SIDEBAR_GROUP_OPTIONS.length) % SIDEBAR_GROUP_OPTIONS.length);
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      focusOption(0);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      focusOption(SIDEBAR_GROUP_OPTIONS.length - 1);
+    }
+  }
+
+  function closeAndRestoreFocus() {
+    setOpen(false);
+    triggerRef.current?.focus();
+  }
+
+  return (
+    <div
+      className="sidebar-group-control"
+      ref={controlRef}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false);
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== "Escape" || !open) return;
+        event.preventDefault();
+        closeAndRestoreFocus();
+      }}
+    >
+      <button
+        ref={triggerRef}
+        className="sidebar-group-trigger"
+        type="button"
+        aria-label={`Group sessions by: ${selectedOption.label}`}
+        aria-haspopup="listbox"
+        aria-controls="sidebar-group-menu"
+        aria-expanded={open}
+        onClick={(event) => {
+          setAnimate(event.detail !== 0);
+          setOpen((current) => !current);
+        }}
+        onKeyDown={handleTriggerKeyDown}
+      >
+        <Icon name={selectedOption.icon} size="xs" />
+        <span>{selectedOption.label}</span>
+        <Icon className="sidebar-group-chevron" name="disclosure" size="xs" />
+      </button>
+      <div
+        className="sidebar-group-menu"
+        id="sidebar-group-menu"
+        role="listbox"
+        aria-label="Group sessions by"
+        aria-hidden={!open}
+        data-open={open}
+        data-animate={animate}
+      >
+        {SIDEBAR_GROUP_OPTIONS.map((option, index) => {
+          const selected = option.value === value;
+          return (
+            <button
+              ref={(element) => { optionRefs.current[index] = element; }}
+              className="sidebar-group-option"
+              type="button"
+              role="option"
+              aria-selected={selected}
+              tabIndex={open ? 0 : -1}
+              key={option.value}
+              onClick={() => {
+                onChange(option.value);
+                closeAndRestoreFocus();
+              }}
+              onKeyDown={(event) => handleOptionKeyDown(event, index)}
+            >
+              <span className="sidebar-group-option-icon"><Icon name={option.icon} size="sm" /></span>
+              <span className="sidebar-group-option-copy">
+                <strong>{option.label}</strong>
+                <span>{option.description}</span>
+              </span>
+              <span className="sidebar-group-option-check" aria-hidden={!selected}>
+                {selected ? <Icon name="status" size="xs" /> : null}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -1503,18 +1656,7 @@ export function App() {
         <div className="library-section-heading">
           <span>{debouncedQuery ? `${(library?.total ?? 0).toLocaleString()} results` : "Sessions"}</span>
           <div className="library-heading-actions">
-            <label className="sidebar-group-control">
-              <span className="sr-only">Group sessions by</span>
-              <select
-                aria-label="Group sessions by"
-                value={sidebarGroup}
-                onChange={(event) => setSidebarGroup(event.target.value as SidebarGroupMode)}
-              >
-                <option value="time">By time</option>
-                <option value="project">By project</option>
-              </select>
-              <Icon name="disclosure" size="xs" />
-            </label>
+            <SessionGroupControl value={sidebarGroup} onChange={setSidebarGroup} />
             <IconButton
               label="Refresh Claude sessions"
               icon="refresh"
