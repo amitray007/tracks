@@ -744,6 +744,7 @@ function DetailsRail({
   mode,
   liveState,
   traceOrder,
+  shareUrl,
   activeFilters,
   activeToolFilters,
   activeActivityFilters,
@@ -761,6 +762,7 @@ function DetailsRail({
   mode: ViewMode;
   liveState: LiveState;
   traceOrder: TraceOrder;
+  shareUrl: string;
   activeFilters: ReadonlySet<EntryFilter>;
   activeToolFilters: ReadonlySet<ToolIntent>;
   activeActivityFilters: ReadonlySet<ActivityKind>;
@@ -916,6 +918,7 @@ function DetailsRail({
             Latest first
           </button>
         </div>
+        <CopyButton value={shareUrl} label="Copy link" className="rail-share-button" />
       </section>
     </aside>
   );
@@ -1505,7 +1508,7 @@ export function App() {
             <IconButton label="Open session library" icon="sidebar" onClick={() => setSidebarOpen(true)} />
             <div className="breadcrumb">
               <span>{selectedSummary?.projectLabel ?? "Session library"}</span>
-              {selectedSummary ? <><span aria-hidden="true">/</span><strong>{selectedSummary.title}</strong></> : null}
+              {selectedSummary ? <><span aria-hidden="true">/</span><strong title={selectedSummary.title}>{selectedSummary.title}</strong></> : null}
             </div>
           </div>
           <div className="workspace-actions">
@@ -1521,7 +1524,7 @@ export function App() {
                 onClear={() => setTraceQuery("")}
               />
             ) : null}
-            <CopyButton value={window.location.href} label="Copy link" className="share-button" />
+            {track ? <CopyButton value={window.location.href} label="Copy link" className="mobile-share-button" /> : null}
           </div>
         </header>
 
@@ -1647,6 +1650,7 @@ export function App() {
               mode={mode}
               liveState={liveState}
               traceOrder={traceOrder}
+              shareUrl={window.location.href}
               activeFilters={activeFilters}
               activeToolFilters={activeToolFilters}
               activeActivityFilters={activeActivityFilters}
