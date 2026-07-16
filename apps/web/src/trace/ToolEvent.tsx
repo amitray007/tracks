@@ -1,5 +1,8 @@
+import { lazy, Suspense } from "react";
 import type { ToolCallEntry, ToolResultEntry } from "@tracks/core-model";
+import { ClaudeCodeIcon } from "../ui/ClaudeCodeIcon";
 import { CopyButton } from "../ui/CopyButton";
+import { languageForPath } from "../ui/codeLanguage";
 import { Icon, type IconName } from "../ui/Icon";
 import { MarkdownContent } from "../ui/MarkdownContent";
 
@@ -17,6 +20,18 @@ export type ToolIntent =
   | "other";
 
 type UnknownRecord = Record<string, unknown>;
+
+const HighlightedCode = lazy(() => import("../ui/HighlightedCode").then((module) => ({
+  default: module.HighlightedCode,
+})));
+
+function SyntaxCode({ code, language }: { code: string; language: string }) {
+  return (
+    <Suspense fallback={<span className="syntax-line">{code}</span>}>
+      <HighlightedCode code={code} language={language} />
+    </Suspense>
+  );
+}
 
 function asRecord(value: unknown): UnknownRecord | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -203,7 +218,12 @@ function RawArguments({ input }: { input: unknown }) {
 }
 
 function TechnicalLabel({ entry }: { entry: ToolCallEntry }) {
-  return <span className="tool-technical-label">Claude tool · {entry.name}</span>;
+  return (
+    <span className="tool-technical-label" title={`Claude Code tool: ${entry.name}`}>
+      <ClaudeCodeIcon size={10} />
+      <span>{entry.name}</span>
+    </span>
+  );
 }
 
 function CommandCall({ entry, input }: { entry: ToolCallEntry; input: UnknownRecord | null }) {
@@ -214,7 +234,7 @@ function CommandCall({ entry, input }: { entry: ToolCallEntry; input: UnknownRec
         <span><Icon name="command" size="xs" />Shell</span>
         <CopyButton value={command} label="Copy command" />
       </div>
-      <pre>{command}</pre>
+      <pre><SyntaxCode code={command} language="bash" /></pre>
     </div>
   );
 }
@@ -231,9 +251,7 @@ function FileChangeCall({ entry, input, intent }: {
     : stringValue(input, "new_string", "new_text", "content") ?? "";
   const removed = clippedLines(oldText);
   const added = clippedLines(newText);
-  const changeCount = intent === "delete"
-    ? `${Math.max(1, removed.total)} removed`
-    : `${added.total} added${removed.total ? ` · ${removed.total} removed` : ""}`;
+  const language = languageForPath(path);
 
   return (
     <div className="file-change-card" data-intent={intent}>
@@ -242,22 +260,37 @@ function FileChangeCall({ entry, input, intent }: {
           <Icon name={intent} size="sm" />
           <span>{shortPath(path)}</span>
         </span>
-        <span className="file-change-count">{changeCount}</span>
+        <span className="file-change-count" aria-label={`${added.total} added, ${removed.total} removed`}>
+          {added.total > 0 ? <span className="addition-count">+{added.total}</span> : null}
+          {removed.total > 0 || intent === "delete" ? <span className="deletion-count">−{Math.max(1, removed.total)}</span> : null}
+        </span>
       </header>
       {intent === "delete" && !oldText ? (
         <div className="file-delete-note">The tool requested that this file or item be removed.</div>
       ) : (
-        <div className="diff-view" aria-label={`${intent} preview`}>
-          {removed.lines.map((line, index) => (
-            <div className="diff-line diff-removed" key={`removed-${index}`}>
-              <span className="diff-sign">−</span><span className="diff-number">{index + 1}</span><code>{line || " "}</code>
+        <div className="diff-view" data-single-pane={removed.lines.length === 0 || added.lines.length === 0} aria-label={`${intent} preview`}>
+          {removed.lines.length > 0 ? (
+            <div className="diff-pane diff-removed" aria-label="Removed lines">
+              {removed.lines.map((line, index) => (
+                <div className="diff-line" key={`removed-${index}`}>
+                  <span className="diff-sign">−</span>
+                  <span className="diff-number">{index + 1}</span>
+                  <code><SyntaxCode code={line || " "} language={language} /></code>
+                </div>
+              ))}
             </div>
-          ))}
-          {added.lines.map((line, index) => (
-            <div className="diff-line diff-added" key={`added-${index}`}>
-              <span className="diff-sign">+</span><span className="diff-number">{index + 1}</span><code>{line || " "}</code>
+          ) : null}
+          {added.lines.length > 0 ? (
+            <div className="diff-pane diff-added" aria-label="Added lines">
+              {added.lines.map((line, index) => (
+                <div className="diff-line" key={`added-${index}`}>
+                  <span className="diff-sign">+</span>
+                  <span className="diff-number">{index + 1}</span>
+                  <code><SyntaxCode code={line || " "} language={language} /></code>
+                </div>
+              ))}
             </div>
-          ))}
+          ) : null}
           {removed.hidden + added.hidden > 0 ? (
             <div className="diff-clipped">{(removed.hidden + added.hidden).toLocaleString()} more lines hidden in this preview</div>
           ) : null}
@@ -378,6 +411,8 @@ export function ToolResultBody({ entry, call }: {
   const text = resultText(entry.content);
   const intent = call ? toolIntent(call) : "other";
   const clipped = text.length > 12_000 ? `${text.slice(0, 12_000)}\n… output clipped in this view` : text;
+  const callInput = call ? asRecord(call.input) : null;
+  const sourcePath = stringValue(callInput, "file_path", "path", "notebook_path");
 
   if (!entry.isError && call && ["edit", "create", "delete"].includes(intent)) {
     return (
@@ -394,7 +429,9 @@ export function ToolResultBody({ entry, call }: {
         <span>{entry.isError ? "Error output" : call ? `From ${call.name}` : "Result data"}</span>
         <CopyButton value={text} label="Copy output" />
       </div>
-      <pre>{clipped || "No result content"}</pre>
+      <pre>{intent === "read" && sourcePath
+        ? <SyntaxCode code={clipped || "No result content"} language={languageForPath(sourcePath)} />
+        : clipped || "No result content"}</pre>
     </div>
   );
 }

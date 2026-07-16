@@ -12,7 +12,13 @@ import type {
   TrackSummary,
   ToolCallEntry,
 } from "@tracks/core-model";
-import { getTrack, getTrackLibrary, type TrackLibraryResponse } from "./api";
+import {
+  getCompleteTrack,
+  getTrackLibrary,
+  getViewerIdentity,
+  type TrackLibraryResponse,
+  type ViewerIdentity,
+} from "./api";
 import {
   ToolCallBody,
   ToolResultBody,
@@ -24,10 +30,12 @@ import {
   type ToolIntent,
 } from "./trace/ToolEvent";
 import { CopyButton } from "./ui/CopyButton";
+import { ClaudeCodeIcon } from "./ui/ClaudeCodeIcon";
 import { Icon, type IconName } from "./ui/Icon";
 import { MarkdownContent } from "./ui/MarkdownContent";
 
 type ViewMode = "compact" | "full";
+type LiveState = "connecting" | "live" | "reconnecting";
 type EntryFilter = "messages" | "reasoning" | "tools" | "results" | "status" | "provider";
 
 const ENTRY_FILTERS: ReadonlyArray<{
@@ -214,17 +222,46 @@ function EntryBody({ entry, relatedToolCall }: {
   }
 }
 
-function EntryFrame({ entry, relatedToolCall }: {
+function EntryNode({
+  entry,
+  icon,
+  viewer,
+}: {
+  entry: TrackEntry;
+  icon: IconName;
+  viewer: ViewerIdentity | null;
+}) {
+  if (entry.kind === "message" && entry.role === "user") {
+    return (
+      <span className="entry-avatar-shell">
+        <Icon name="user" size="sm" />
+        {viewer?.avatarUrl ? (
+          <img
+            className="entry-avatar github-avatar"
+            src={viewer.avatarUrl}
+            alt=""
+            onError={(event) => event.currentTarget.remove()}
+          />
+        ) : null}
+      </span>
+    );
+  }
+  if (entry.kind === "message" && entry.role === "assistant") {
+    return <span className="entry-brand-avatar"><ClaudeCodeIcon size={20} /></span>;
+  }
+  return <span className="entry-node"><Icon name={icon} size="sm" /></span>;
+}
+
+function EntryFrame({ entry, relatedToolCall, viewer }: {
   entry: TrackEntry;
   relatedToolCall: ToolCallEntry | undefined;
+  viewer: ViewerIdentity | null;
 }) {
   const presentation = entryPresentation(entry, relatedToolCall);
   return (
     <article className={`entry entry-${entry.kind} tone-${presentation.tone}`} id={`entry-${entry.id}`}>
       <div className="entry-rail" aria-hidden="true">
-        <span className="entry-node">
-          <Icon name={presentation.icon} size="sm" />
-        </span>
+        <EntryNode entry={entry} icon={presentation.icon} viewer={viewer} />
       </div>
       <div className="entry-content">
         <header className="entry-header">
@@ -272,7 +309,10 @@ function SessionRow({
       <span className="session-meta">
         <span className="session-project"><Icon name="project" size="xs" />{track.projectLabel}</span>
         <span aria-hidden="true">·</span>
-        <span><span className="provider-dot" aria-hidden="true" />{track.providerLabel}</span>
+        <span className="session-provider" title={track.providerLabel}>
+          <ClaudeCodeIcon size={12} />
+          <span className="sr-only">{track.providerLabel}</span>
+        </span>
         <span aria-hidden="true">·</span>
         {formatBytes(track.sourceBytes)}
       </span>
@@ -396,6 +436,7 @@ function SessionOverview({ track, mode }: { track: Track; mode: ViewMode }) {
 function DetailsRail({
   track,
   mode,
+  liveState,
   activeFilters,
   activeToolFilters,
   filterCounts,
@@ -407,6 +448,7 @@ function DetailsRail({
 }: {
   track: Track;
   mode: ViewMode;
+  liveState: LiveState;
   activeFilters: ReadonlySet<EntryFilter>;
   activeToolFilters: ReadonlySet<ToolIntent>;
   filterCounts: Record<EntryFilter, number>;
@@ -422,7 +464,7 @@ function DetailsRail({
       <section>
         <div className="rail-heading">Session</div>
         <dl>
-          <div><dt>Provider</dt><dd>{track.summary.providerLabel}</dd></div>
+          <div><dt>Provider</dt><dd className="provider-value"><ClaudeCodeIcon size={14} label={track.summary.providerLabel} /></dd></div>
           <div><dt>Project</dt><dd>{track.summary.projectLabel}</dd></div>
           <div><dt>Started</dt><dd>{formatDate(track.summary.startedAt)}</dd></div>
           <div><dt>Source</dt><dd>{formatBytes(track.summary.sourceBytes)}</dd></div>
@@ -494,9 +536,9 @@ function DetailsRail({
         </section>
       )}
       <section>
-        <div className="rail-heading">Loaded slice</div>
+        <div className="rail-heading">Loaded session</div>
         <div className="slice-count">{track.entries.length.toLocaleString()} entries</div>
-        <p className="rail-note">Raw files remain authoritative. Tracks loads a bounded normalized view.</p>
+        <p className="rail-note"><span className={`live-indicator live-${liveState}`} />{liveState === "live" ? "Watching the local session for changes." : "Reconnecting to local updates."}</p>
       </section>
     </aside>
   );
@@ -510,6 +552,8 @@ export function App() {
   const [library, setLibrary] = useState<TrackLibraryResponse | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(readTrackFromLocation);
   const [track, setTrack] = useState<Track | null>(null);
+  const [viewer, setViewer] = useState<ViewerIdentity | null>(null);
+  const [liveState, setLiveState] = useState<LiveState>("connecting");
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<ViewMode>(readModeFromLocation);
   const [activeFilters, setActiveFilters] = useState<Set<EntryFilter>>(readFiltersFromLocation);
@@ -519,8 +563,9 @@ export function App() {
   const [trackError, setTrackError] = useState<string | null>(null);
   const [loadingTrack, setLoadingTrack] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const selectedIdRef = useRef<string | null>(selectedId);
+  const liveRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function loadLibrary(refresh = false) {
     if (refresh) setRefreshing(true);
@@ -538,6 +583,46 @@ export function App() {
 
   useEffect(() => {
     void loadLibrary();
+    void getViewerIdentity().then(setViewer).catch(() => setViewer(null));
+  }, []);
+
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
+
+  useEffect(() => {
+    const events = new EventSource("/api/events");
+    let closed = false;
+
+    const refreshLiveData = () => {
+      if (liveRefreshTimer.current) clearTimeout(liveRefreshTimer.current);
+      liveRefreshTimer.current = setTimeout(() => {
+        liveRefreshTimer.current = null;
+        const trackId = selectedIdRef.current;
+        void Promise.all([
+          getTrackLibrary(),
+          trackId ? getCompleteTrack(trackId) : Promise.resolve(null),
+        ]).then(([nextLibrary, nextTrack]) => {
+          if (closed) return;
+          setLibrary(nextLibrary);
+          if (nextTrack && selectedIdRef.current === trackId) setTrack(nextTrack);
+        }).catch(() => {
+          if (!closed) setLiveState("reconnecting");
+        });
+      }, 90);
+    };
+
+    events.onopen = () => setLiveState("live");
+    events.addEventListener("connected", () => setLiveState("live"));
+    events.addEventListener("catalog.updated", refreshLiveData);
+    events.addEventListener("catalog.error", () => setLiveState("reconnecting"));
+    events.onerror = () => setLiveState("reconnecting");
+
+    return () => {
+      closed = true;
+      events.close();
+      if (liveRefreshTimer.current) clearTimeout(liveRefreshTimer.current);
+    };
   }, []);
 
   useEffect(() => {
@@ -583,7 +668,13 @@ export function App() {
     const controller = new AbortController();
     setLoadingTrack(true);
     setTrackError(null);
-    void getTrack(selectedId)
+    setTrack(null);
+    void getCompleteTrack(selectedId, {
+      signal: controller.signal,
+      onProgress: (nextTrack) => {
+        if (!controller.signal.aborted) setTrack(nextTrack);
+      },
+    })
       .then((nextTrack) => {
         if (!controller.signal.aborted) setTrack(nextTrack);
       })
@@ -710,23 +801,6 @@ export function App() {
     window.history.replaceState(null, "", url);
   }
 
-  async function loadMore() {
-    if (!track?.nextSequence) return;
-    setLoadingMore(true);
-    try {
-      const next = await getTrack(track.summary.id, track.nextSequence);
-      setTrack((current) => current ? {
-        ...next,
-        entries: [...current.entries, ...next.entries],
-        diagnostics: [...current.diagnostics, ...next.diagnostics],
-      } : next);
-    } catch (error) {
-      setTrackError(error instanceof Error ? error.message : "Could not load more entries.");
-    } finally {
-      setLoadingMore(false);
-    }
-  }
-
   const selectedSummary = library?.tracks.find((item) => item.id === selectedId) ?? null;
 
   return (
@@ -792,7 +866,7 @@ export function App() {
           ))}
         </div>
         <footer className="library-footer">
-          <span><span className="health-dot" />{library?.sourceState === "ready" ? "Claude source ready" : "Checking Claude source"}</span>
+          <span><span className={`health-dot live-${liveState}`} />{liveState === "live" ? "Live updates" : liveState === "reconnecting" ? "Reconnecting" : "Connecting"}</span>
           <span>{library ? `${library.total.toLocaleString()} sessions` : "—"}</span>
         </footer>
       </aside>
@@ -842,7 +916,10 @@ export function App() {
                   <h1>{track.summary.title}</h1>
                   <div className="track-byline">
                     <span><Icon name="project" size="sm" />{track.summary.projectLabel}</span>
-                    <span><span className="provider-dot" />{track.summary.providerLabel}</span>
+                    <span className="track-provider" title={track.summary.providerLabel}>
+                      <ClaudeCodeIcon size={14} />
+                      <span className="sr-only">{track.summary.providerLabel}</span>
+                    </span>
                     <span>{formatBytes(track.summary.sourceBytes)}</span>
                   </div>
                   <ViewToggle mode={mode} onChange={setMode} />
@@ -862,6 +939,7 @@ export function App() {
                       relatedToolCall={entry.kind === "tool_result" && entry.toolUseId
                         ? toolCallsById.get(entry.toolUseId)
                         : undefined}
+                      viewer={viewer}
                     />
                   ))}
                   {visibleEntries.length === 0 ? (
@@ -885,14 +963,7 @@ export function App() {
                     </div>
                   ) : null}
                 </div>
-                {track.truncated ? (
-                  <div className="load-more-wrap">
-                    <button className="load-more" type="button" onClick={() => void loadMore()} disabled={loadingMore}>
-                      <Icon name="disclosure" size="sm" />
-                      {loadingMore ? "Loading…" : "Load more entries"}
-                    </button>
-                  </div>
-                ) : null}
+                {loadingTrack && track.truncated ? <div className="track-syncing">Loading the complete trace…</div> : null}
               </>
             ) : null}
           </section>
@@ -900,6 +971,7 @@ export function App() {
             <DetailsRail
               track={track}
               mode={mode}
+              liveState={liveState}
               activeFilters={activeFilters}
               activeToolFilters={activeToolFilters}
               filterCounts={filterCounts}

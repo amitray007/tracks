@@ -18,6 +18,7 @@ Tracks is a local-first viewer for AI coding-agent sessions. It begins with Clau
 - [Privacy and security](architecture/privacy-security.md) — localhost defaults, untrusted content, redaction, and plugin safety.
 - [Sharing and hosting](architecture/sharing-hosting.md) — session/project shares, static bundles, preview hosting, and publisher boundaries.
 - [ADR 0001: TypeScript loopback runtime](architecture/decisions/0001-typescript-loopback-runtime.md) — initial runtime, workspace, and Portless development decision.
+- [ADR 0002: Server-sent events](architecture/decisions/0002-server-sent-events.md) — one-way local source invalidation, reconnect, and refresh semantics.
 
 ### Providers
 

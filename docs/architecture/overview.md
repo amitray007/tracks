@@ -85,24 +85,25 @@ Each layer has a distinct responsibility:
 
 Terminology differences are therefore adapter concerns. Claude Code's current vocabulary informs the first mappings, while future adapters map their own vocabulary into the same semantic concepts only where the evidence is equivalent. The exact provider event kind remains visible in inspection mode.
 
-## Proposed technology choices
+## Technology choices
 
-These are recommendations, not yet binding decisions:
+The table separates the implemented Claude foundation from later candidates so the overview does not present exploratory dependencies as shipped architecture:
 
-| Area | Proposed choice | Reason |
+| Area | Current foundation or direction | Reason |
 | --- | --- | --- |
 | UI | React + TypeScript + Vite | Fast localhost workflow without requiring server rendering |
 | Product entry point | `tracks` CLI | Own service lifecycle, source/index authority, browser launch, status, and diagnostics |
 | Development routing | Pinned Portless | Stable same-origin `.localhost` URL and collision-free development ports; development only |
-| Styling | Tailwind CSS plus semantic CSS variables | Constrained tokens and efficient component iteration |
-| Primitives | Radix UI | Accessible, unstyled interaction building blocks |
+| Styling | Semantic CSS variables and component CSS | Small current surface, explicit density control, and no runtime styling dependency |
+| Primitives | Native HTML controls today; Radix remains a candidate for focus-managed overlays | Preserve accessible semantics without adding abstractions before they are needed |
 | Icons | Semantic `Icon` registry backed initially by `@hugeicons/react` and `@hugeicons/core-free-icons` | A richer provider-neutral glyph set without coupling shared components to a vendor package |
-| Markdown | Streamdown | AI streaming and incomplete Markdown support |
-| Highlighting | Shiki | High-quality code themes and language coverage |
-| Diffs | @pierre/diffs/react | Specialized, customizable diff rendering |
-| Virtualization | @tanstack/react-virtual | Long heterogeneous transcript and result lists |
+| Provider marks | Static tree-independent assets from Lobe Icons | Claude identity is visually distinct from provider-neutral event icons |
+| Markdown | `react-markdown` plus GFM with raw HTML disabled | Safe current transcript rendering; streaming-specific parsing can be evaluated later |
+| Highlighting | Lazy-loaded `prism-react-renderer` | Syntax color without blocking the initial session-library bundle |
+| Diffs | Purpose-built split renderer for Claude edit/write evidence | Correct `+`/`−`, line gutters, responsive stacking, and syntax-aware old/new panes |
+| Virtualization | Candidate: `@tanstack/react-virtual` | Needed after measuring very long complete traces and scroll anchoring |
 | Local storage | SQLite with FTS5 | Rebuildable metadata and full-text search index |
-| Live updates | File watcher plus server-sent events or WebSocket | Incremental session updates |
+| Live updates | Recursive file watcher plus server-sent events | One-way source invalidation, native browser reconnect, and no bidirectional socket protocol |
 | Validation | TypeScript plus a runtime schema library | Boundary validation for provider and API data |
 | Sharing | Generated static site/package | Offline-capable session/project viewing on ordinary static hosting |
 

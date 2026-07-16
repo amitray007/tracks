@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TrackLibrarySchema, TrackSchema } from "@tracks/core-model";
@@ -70,5 +70,48 @@ describe("Tracks loopback server", () => {
       headers: { Origin: "https://example.com" },
     });
     expect(response.status).toBe(403);
+  });
+
+  it("streams live catalog updates when a Claude session changes", async () => {
+    const sourceRoot = await createSource();
+    const server = await startTracksServer({ sourceRoot, staticDirectory: false });
+    servers.push(server);
+
+    const response = await fetch(`${server.url}/api/events`);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    const reader = response.body?.getReader();
+    expect(reader).toBeDefined();
+    if (!reader) return;
+
+    const decoder = new TextDecoder();
+    let received = "";
+    const readUntil = async (needle: string) => {
+      const deadline = Date.now() + 4_000;
+      while (!received.includes(needle) && Date.now() < deadline) {
+        const result = await Promise.race([
+          reader.read(),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("SSE timeout")), 1_000)),
+        ]);
+        if (result.done) break;
+        received += decoder.decode(result.value, { stream: true });
+      }
+      expect(received).toContain(needle);
+    };
+
+    await readUntil("event: connected");
+    await appendFile(
+      join(sourceRoot, "example-project", "session.jsonl"),
+      `${JSON.stringify({
+        type: "assistant",
+        sessionId: "server-fixture",
+        uuid: "assistant-1",
+        timestamp: "2026-07-16T08:00:01.000Z",
+        message: { content: [{ type: "text", text: "The session changed." }] },
+      })}\n`,
+      "utf8",
+    );
+    await readUntil("event: catalog.updated");
+    expect(received).toContain('"changedFile":"session.jsonl"');
+    await reader.cancel();
   });
 });
