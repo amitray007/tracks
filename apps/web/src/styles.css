@@ -79,6 +79,31 @@ code, pre, kbd {
   min-height: 0;
   overflow: hidden;
   background: var(--background);
+  opacity: 1;
+  transition: opacity 120ms var(--ease-out);
+}
+
+.track-loaded {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 140ms var(--ease-out), transform 180ms var(--ease-out);
+}
+
+.track-loading,
+.details-rail {
+  opacity: 1;
+  transition: opacity 120ms var(--ease-out);
+}
+
+@starting-style {
+  .app-shell,
+  .track-loading,
+  .details-rail { opacity: 0; }
+
+  .track-loaded {
+    opacity: 0;
+    transform: translateY(4px);
+  }
 }
 
 .library-panel {

@@ -1609,114 +1609,116 @@ export function App() {
             {trackError ? <div className="track-error"><Icon name="error" />{trackError}</div> : null}
             {track ? (
               <>
-                <header className="track-hero">
-                  <div className="track-eyebrow">
-                    {track.summary.parentTrackId ? (
-                      <span className="subagent-track-badge"><Icon name="agent" size="xs" />Sub-agent transcript</span>
-                    ) : (
-                      <span className={`state-badge state-${track.summary.state}`}>
-                        <span />{track.summary.state === "unknown" ? "Saved session" : track.summary.state}
+                <div className="track-loaded" key={track.summary.id}>
+                  <header className="track-hero">
+                    <div className="track-eyebrow">
+                      {track.summary.parentTrackId ? (
+                        <span className="subagent-track-badge"><Icon name="agent" size="xs" />Sub-agent transcript</span>
+                      ) : (
+                        <span className={`state-badge state-${track.summary.state}`}>
+                          <span />{track.summary.state === "unknown" ? "Saved session" : track.summary.state}
+                        </span>
+                      )}
+                      <span>{formatDate(track.summary.startedAt)}</span>
+                    </div>
+                    <h1>{track.summary.title}</h1>
+                    <div className="track-byline">
+                      <span><Icon name="project" size="sm" />{track.summary.projectLabel}</span>
+                      <span className="track-provider" title={track.summary.providerLabel}>
+                        <ClaudeCodeIcon size={14} />
+                        <span>{track.summary.providerLabel}</span>
                       </span>
-                    )}
-                    <span>{formatDate(track.summary.startedAt)}</span>
-                  </div>
-                  <h1>{track.summary.title}</h1>
-                  <div className="track-byline">
-                    <span><Icon name="project" size="sm" />{track.summary.projectLabel}</span>
-                    <span className="track-provider" title={track.summary.providerLabel}>
-                      <ClaudeCodeIcon size={14} />
-                      <span>{track.summary.providerLabel}</span>
-                    </span>
-                    <span>{formatBytes(track.summary.sourceBytes)}</span>
-                    {track.summary.parentTrackId ? (
-                      <button
-                        className="parent-session-link"
-                        type="button"
-                        onClick={() => selectTrack(track.summary.parentTrackId!)}
-                      >
-                        <Icon name="up" size="xs" />Parent session
-                      </button>
-                    ) : null}
-                  </div>
-                  <ViewToggle mode={mode} onChange={setMode} />
-                </header>
-                <SessionOverview track={track} mode={mode} />
-                {track.diagnostics.length > 0 ? (
-                  <div className="diagnostic-banner">
-                    <Icon name="warning" />
-                    <span>{track.diagnostics.length} source {track.diagnostics.length === 1 ? "record needs" : "records need"} inspection. Valid surrounding entries are still shown.</span>
-                  </div>
-                ) : null}
-                <div
-                  className="trace"
-                  data-mode={mode}
-                  id="session-trace"
-                  role="feed"
-                  aria-label={mode === "compact" ? "Session highlights" : "Full session trace"}
-                  aria-busy={loadingTrackMore}
-                >
-                  {orderedVisibleEntries.map((entry) => (
-                    <EntryFrame
-                      entry={entry}
-                      key={entry.id}
-                      relatedToolCall={entry.kind === "tool_result" && entry.toolUseId
-                        ? toolCallsById.get(entry.toolUseId)
-                        : undefined}
-                      relatedSubAgent={entry.kind === "tool_call"
-                        ? subagentsByParentEntryId.get(entry.id)
-                        : undefined}
-                      viewer={viewer}
-                      totalEntries={track.summary.entryCount}
-                      isSubagentTrack={Boolean(track.summary.parentTrackId)}
-                      onOpenTrack={selectTrack}
-                    />
-                  ))}
-                  {traceSearchResult.entries.length === 0 ? (
-                    <div className="trace-empty">
-                      <span><Icon name={traceQuery ? "search" : "filter"} size="lg" /></span>
-                      <strong>{traceSearchResult.error
-                        ? "Invalid regular expression"
-                        : traceQuery
-                          ? track.truncated
-                            ? "No matches in loaded entries yet"
-                            : "No entries match this search"
-                          : mode === "compact"
-                            ? "No narrative entries in this slice"
-                            : "No evidence matches"}</strong>
-                      <p>{traceSearchResult.error
-                        ? "Adjust the pattern or switch back to plain text."
-                        : traceQuery
-                          ? `No ${traceSearchMode === "regex" ? "regex" : "text"} matches in the ${track.truncated ? "loaded portion of the " : "current "}${mode === "compact" ? "Highlights" : "Full trace"}.`
-                          : mode === "compact"
-                            ? "Open Full view to inspect provider mechanics."
-                            : "Enable one or more evidence filters to continue."}</p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (traceQuery) {
-                            setTraceQuery("");
-                          } else if (mode === "compact") {
-                            setMode("full");
-                          } else {
-                            setActiveFilters(new Set(ALL_ENTRY_FILTERS));
-                            setActiveToolFilters(new Set(ALL_TOOL_FILTERS));
-                            setActiveActivityFilters(new Set(ALL_ACTIVITY_FILTERS));
-                          }
-                        }}
-                      >
-                        {traceQuery ? "Clear search" : mode === "compact" ? "Open Full view" : "Show all evidence"}
-                      </button>
+                      <span>{formatBytes(track.summary.sourceBytes)}</span>
+                      {track.summary.parentTrackId ? (
+                        <button
+                          className="parent-session-link"
+                          type="button"
+                          onClick={() => selectTrack(track.summary.parentTrackId!)}
+                        >
+                          <Icon name="up" size="xs" />Parent session
+                        </button>
+                      ) : null}
+                    </div>
+                    <ViewToggle mode={mode} onChange={setMode} />
+                  </header>
+                  <SessionOverview track={track} mode={mode} />
+                  {track.diagnostics.length > 0 ? (
+                    <div className="diagnostic-banner">
+                      <Icon name="warning" />
+                      <span>{track.diagnostics.length} source {track.diagnostics.length === 1 ? "record needs" : "records need"} inspection. Valid surrounding entries are still shown.</span>
                     </div>
                   ) : null}
-                  {track.truncated && !traceSearchResult.error ? (
-                    <InfiniteLoadSentinel
-                      loading={loadingTrackMore}
-                      label={traceQuery ? "Search more entries" : "Load more entries"}
-                      error={trackMoreError}
-                      autoLoad={!traceQuery || orderedVisibleEntries.length > 0}
-                      onLoad={loadMoreTrack}
-                    />
-                  ) : null}
+                  <div
+                    className="trace"
+                    data-mode={mode}
+                    id="session-trace"
+                    role="feed"
+                    aria-label={mode === "compact" ? "Session highlights" : "Full session trace"}
+                    aria-busy={loadingTrackMore}
+                  >
+                    {orderedVisibleEntries.map((entry) => (
+                      <EntryFrame
+                        entry={entry}
+                        key={entry.id}
+                        relatedToolCall={entry.kind === "tool_result" && entry.toolUseId
+                          ? toolCallsById.get(entry.toolUseId)
+                          : undefined}
+                        relatedSubAgent={entry.kind === "tool_call"
+                          ? subagentsByParentEntryId.get(entry.id)
+                          : undefined}
+                        viewer={viewer}
+                        totalEntries={track.summary.entryCount}
+                        isSubagentTrack={Boolean(track.summary.parentTrackId)}
+                        onOpenTrack={selectTrack}
+                      />
+                    ))}
+                    {traceSearchResult.entries.length === 0 ? (
+                      <div className="trace-empty">
+                        <span><Icon name={traceQuery ? "search" : "filter"} size="lg" /></span>
+                        <strong>{traceSearchResult.error
+                          ? "Invalid regular expression"
+                          : traceQuery
+                            ? track.truncated
+                              ? "No matches in loaded entries yet"
+                              : "No entries match this search"
+                            : mode === "compact"
+                              ? "No narrative entries in this slice"
+                              : "No evidence matches"}</strong>
+                        <p>{traceSearchResult.error
+                          ? "Adjust the pattern or switch back to plain text."
+                          : traceQuery
+                            ? `No ${traceSearchMode === "regex" ? "regex" : "text"} matches in the ${track.truncated ? "loaded portion of the " : "current "}${mode === "compact" ? "Highlights" : "Full trace"}.`
+                            : mode === "compact"
+                              ? "Open Full view to inspect provider mechanics."
+                              : "Enable one or more evidence filters to continue."}</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (traceQuery) {
+                              setTraceQuery("");
+                            } else if (mode === "compact") {
+                              setMode("full");
+                            } else {
+                              setActiveFilters(new Set(ALL_ENTRY_FILTERS));
+                              setActiveToolFilters(new Set(ALL_TOOL_FILTERS));
+                              setActiveActivityFilters(new Set(ALL_ACTIVITY_FILTERS));
+                            }
+                          }}
+                        >
+                          {traceQuery ? "Clear search" : mode === "compact" ? "Open Full view" : "Show all evidence"}
+                        </button>
+                      </div>
+                    ) : null}
+                    {track.truncated && !traceSearchResult.error ? (
+                      <InfiniteLoadSentinel
+                        loading={loadingTrackMore}
+                        label={traceQuery ? "Search more entries" : "Load more entries"}
+                        error={trackMoreError}
+                        autoLoad={!traceQuery || orderedVisibleEntries.length > 0}
+                        onLoad={loadMoreTrack}
+                      />
+                    ) : null}
+                  </div>
                 </div>
                 <TraceJumpNavigation key={track.summary.id} />
               </>
@@ -1724,6 +1726,7 @@ export function App() {
           </section>
           {track ? (
             <DetailsRail
+              key={track.summary.id}
               track={track}
               mode={mode}
               liveState={liveState}
