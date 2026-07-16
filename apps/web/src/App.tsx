@@ -15,6 +15,46 @@ import { getTrack, getTrackLibrary, type TrackLibraryResponse } from "./api";
 import { Icon, type IconName } from "./ui/Icon";
 
 type ViewMode = "compact" | "full";
+type EntryFilter = "messages" | "reasoning" | "tools" | "results" | "status" | "provider";
+
+const ENTRY_FILTERS: ReadonlyArray<{
+  id: EntryFilter;
+  label: string;
+  icon: IconName;
+}> = [
+  { id: "messages", label: "Messages", icon: "message" },
+  { id: "reasoning", label: "Reasoning", icon: "reasoning" },
+  { id: "tools", label: "Tool calls", icon: "tool" },
+  { id: "results", label: "Tool results", icon: "result" },
+  { id: "status", label: "Status", icon: "status" },
+  { id: "provider", label: "Provider events", icon: "info" },
+];
+
+const ALL_ENTRY_FILTERS = ENTRY_FILTERS.map(({ id }) => id);
+
+function filterForEntry(entry: TrackEntry): EntryFilter {
+  switch (entry.kind) {
+    case "message": return "messages";
+    case "reasoning": return "reasoning";
+    case "tool_call": return "tools";
+    case "tool_result": return "results";
+    case "status": return "status";
+    case "unsupported": return "provider";
+  }
+}
+
+function readModeFromLocation(): ViewMode {
+  return new URLSearchParams(window.location.search).get("view") === "full" ? "full" : "compact";
+}
+
+function readFiltersFromLocation(): Set<EntryFilter> {
+  const values = new URLSearchParams(window.location.search).getAll("type");
+  if (values.includes("none")) return new Set();
+  const known = values.filter((value): value is EntryFilter =>
+    ALL_ENTRY_FILTERS.includes(value as EntryFilter),
+  );
+  return new Set(known.length > 0 ? known : ALL_ENTRY_FILTERS);
+}
 
 function formatRelativeTime(value: string): string {
   const distance = Date.now() - Date.parse(value);
@@ -240,7 +280,70 @@ function EmptyPanel({ icon, title, children }: { icon: IconName; title: string; 
   );
 }
 
-function DetailsRail({ track }: { track: Track }) {
+function SessionOverview({ track, mode }: { track: Track; mode: ViewMode }) {
+  const userMessages = track.entries.filter(
+    (entry) => entry.kind === "message" && entry.role === "user",
+  ).length;
+  const assistantMessages = track.entries.filter(
+    (entry) => entry.kind === "message" && entry.role === "assistant",
+  ).length;
+  const toolCalls = track.entries.filter((entry) => entry.kind === "tool_call");
+  const uniqueTools = new Set(toolCalls.map((entry) => entry.name)).size;
+  const errors = track.entries.filter((entry) =>
+    (entry.kind === "tool_result" && entry.isError)
+    || (entry.kind === "status" && entry.tone === "danger"),
+  ).length;
+  const providerEvents = track.entries.filter((entry) => entry.kind === "unsupported").length;
+  const mechanics = track.entries.length - userMessages - assistantMessages - errors;
+
+  return (
+    <section className="session-overview" aria-label="Loaded session overview">
+      <header>
+        <span>Overview</span>
+        <span className="overview-badge">
+          {mode === "compact"
+            ? `${Math.max(0, mechanics).toLocaleString()} mechanics collapsed`
+            : `${track.entries.length.toLocaleString()} entries loaded`}
+        </span>
+      </header>
+      <div className="overview-rows">
+        <div>
+          <Icon name="message" size="sm" />
+          <span>Conversation</span>
+          <strong>{userMessages} prompts · {assistantMessages} responses</strong>
+        </div>
+        <div>
+          <Icon name="tool" size="sm" />
+          <span>Work</span>
+          <strong>{toolCalls.length} calls · {uniqueTools} tools</strong>
+        </div>
+        <div>
+          <Icon name={errors > 0 ? "warning" : "status"} size="sm" />
+          <span>Exceptions</span>
+          <strong>{errors} errors · {providerEvents} provider-only</strong>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function DetailsRail({
+  track,
+  mode,
+  activeFilters,
+  filterCounts,
+  onToggleFilter,
+  onResetFilters,
+  onClearFilters,
+}: {
+  track: Track;
+  mode: ViewMode;
+  activeFilters: ReadonlySet<EntryFilter>;
+  filterCounts: Record<EntryFilter, number>;
+  onToggleFilter(filter: EntryFilter): void;
+  onResetFilters(): void;
+  onClearFilters(): void;
+}) {
   const capabilities = Object.entries(track.summary.capabilities).filter(([, available]) => available);
   return (
     <aside className="details-rail" aria-label="Session details">
@@ -253,14 +356,47 @@ function DetailsRail({ track }: { track: Track }) {
           <div><dt>Source</dt><dd>{formatBytes(track.summary.sourceBytes)}</dd></div>
         </dl>
       </section>
-      <section>
-        <div className="rail-heading">Available evidence</div>
-        <div className="capability-list">
-          {capabilities.length > 0 ? capabilities.map(([name]) => (
-            <span key={name}><Icon name="status" size="xs" />{name.replace(/([A-Z])/g, " $1")}</span>
-          )) : <span className="muted">Basic messages only</span>}
-        </div>
-      </section>
+      {mode === "full" ? (
+        <section>
+          <div className="rail-heading-row">
+            <div className="rail-heading">Evidence filters</div>
+            <button
+              type="button"
+              onClick={activeFilters.size > 0 ? onClearFilters : onResetFilters}
+            >
+              {activeFilters.size > 0 ? "Clear" : "Show all"}
+            </button>
+          </div>
+          <div className="filter-list">
+            {ENTRY_FILTERS.map((filter) => {
+              const active = activeFilters.has(filter.id);
+              return (
+                <button
+                  key={filter.id}
+                  type="button"
+                  aria-pressed={active}
+                  data-active={active}
+                  onClick={() => onToggleFilter(filter.id)}
+                >
+                  <span className="filter-mark" aria-hidden="true"><span /></span>
+                  <Icon name={filter.icon} size="sm" />
+                  <span>{filter.label}</span>
+                  <output>{filterCounts[filter.id]}</output>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      ) : (
+        <section>
+          <div className="rail-heading">Available evidence</div>
+          <div className="capability-list">
+            {capabilities.length > 0 ? capabilities.map(([name]) => (
+              <span key={name}><Icon name="status" size="xs" />{name.replace(/([A-Z])/g, " $1")}</span>
+            )) : <span className="muted">Basic messages only</span>}
+          </div>
+        </section>
+      )}
       <section>
         <div className="rail-heading">Loaded slice</div>
         <div className="slice-count">{track.entries.length.toLocaleString()} entries</div>
@@ -279,7 +415,8 @@ export function App() {
   const [selectedId, setSelectedId] = useState<string | null>(readTrackFromLocation);
   const [track, setTrack] = useState<Track | null>(null);
   const [query, setQuery] = useState("");
-  const [mode, setMode] = useState<ViewMode>("compact");
+  const [mode, setMode] = useState<ViewMode>(readModeFromLocation);
+  const [activeFilters, setActiveFilters] = useState<Set<EntryFilter>>(readFiltersFromLocation);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [trackError, setTrackError] = useState<string | null>(null);
@@ -305,6 +442,20 @@ export function App() {
   useEffect(() => {
     void loadLibrary();
   }, []);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("view", mode);
+    url.searchParams.delete("type");
+    if (activeFilters.size === 0) {
+      url.searchParams.append("type", "none");
+    } else if (activeFilters.size < ALL_ENTRY_FILTERS.length) {
+      for (const filter of ALL_ENTRY_FILTERS) {
+        if (activeFilters.has(filter)) url.searchParams.append("type", filter);
+      }
+    }
+    window.history.replaceState(null, "", url);
+  }, [activeFilters, mode]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -353,15 +504,39 @@ export function App() {
     );
   }, [library, query]);
 
+  const filterCounts = useMemo<Record<EntryFilter, number>>(() => {
+    const counts: Record<EntryFilter, number> = {
+      messages: 0,
+      reasoning: 0,
+      tools: 0,
+      results: 0,
+      status: 0,
+      provider: 0,
+    };
+    for (const entry of track?.entries ?? []) counts[filterForEntry(entry)] += 1;
+    return counts;
+  }, [track]);
+
   const visibleEntries = useMemo(() => {
-    if (!track || mode === "full") return track?.entries ?? [];
-    return track.entries.filter((entry) =>
-      entry.kind !== "reasoning"
-      && entry.kind !== "unsupported"
-      && !(entry.kind === "status" && entry.tone === "neutral")
-      && !(entry.kind === "tool_result" && !entry.isError),
-    );
-  }, [mode, track]);
+    if (!track) return [];
+    if (mode === "compact") {
+      return track.entries.filter((entry) =>
+        (entry.kind === "message" && entry.role !== "system")
+        || (entry.kind === "tool_result" && entry.isError)
+        || (entry.kind === "status" && (entry.tone === "warning" || entry.tone === "danger")),
+      );
+    }
+    return track.entries.filter((entry) => activeFilters.has(filterForEntry(entry)));
+  }, [activeFilters, mode, track]);
+
+  function toggleFilter(filter: EntryFilter) {
+    setActiveFilters((current) => {
+      const next = new Set(current);
+      if (next.has(filter)) next.delete(filter);
+      else next.add(filter);
+      return next;
+    });
+  }
 
   function selectTrack(trackId: string) {
     setSelectedId(trackId);
@@ -468,7 +643,7 @@ export function App() {
           </div>
         </header>
 
-        <div className="workspace-body">
+        <div className="workspace-body" data-mode={mode}>
           <section className="track-column" aria-busy={loadingTrack}>
             {!selectedId && library?.sourceState === "missing" ? (
               <EmptyPanel icon="project" title="Claude sessions were not found">
@@ -503,6 +678,7 @@ export function App() {
                     <span>{formatBytes(track.summary.sourceBytes)}</span>
                   </div>
                 </header>
+                <SessionOverview track={track} mode={mode} />
                 {track.diagnostics.length > 0 ? (
                   <div className="diagnostic-banner">
                     <Icon name="warning" />
@@ -511,6 +687,21 @@ export function App() {
                 ) : null}
                 <div className="trace" data-mode={mode}>
                   {visibleEntries.map((entry) => <EntryFrame entry={entry} key={entry.id} />)}
+                  {visibleEntries.length === 0 ? (
+                    <div className="trace-empty">
+                      <span><Icon name="filter" size="lg" /></span>
+                      <strong>{mode === "compact" ? "No narrative entries in this slice" : "No evidence matches"}</strong>
+                      <p>{mode === "compact" ? "Open Full view to inspect provider mechanics." : "Enable one or more evidence filters to continue."}</p>
+                      <button
+                        type="button"
+                        onClick={() => mode === "compact"
+                          ? setMode("full")
+                          : setActiveFilters(new Set(ALL_ENTRY_FILTERS))}
+                      >
+                        {mode === "compact" ? "Open Full view" : "Show all evidence"}
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
                 {track.truncated ? (
                   <div className="load-more-wrap">
@@ -523,7 +714,17 @@ export function App() {
               </>
             ) : null}
           </section>
-          {track ? <DetailsRail track={track} /> : null}
+          {track ? (
+            <DetailsRail
+              track={track}
+              mode={mode}
+              activeFilters={activeFilters}
+              filterCounts={filterCounts}
+              onToggleFilter={toggleFilter}
+              onResetFilters={() => setActiveFilters(new Set(ALL_ENTRY_FILTERS))}
+              onClearFilters={() => setActiveFilters(new Set())}
+            />
+          ) : null}
         </div>
       </main>
     </div>
