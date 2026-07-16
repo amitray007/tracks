@@ -39,6 +39,7 @@ type LiveState = "connecting" | "live" | "reconnecting";
 type EntryFilter = "messages" | "reasoning" | "tools" | "results" | "status" | "provider";
 type SidebarGroupMode = "time" | "project";
 type TraceOrder = "oldest" | "latest";
+type TraceSearchMode = "text" | "regex";
 
 const ENTRY_FILTERS: ReadonlyArray<{
   id: EntryFilter;
@@ -89,6 +90,27 @@ function filterForEntry(entry: TrackEntry): EntryFilter {
     case "tool_result": return "results";
     case "status": return "status";
     case "unsupported": return "provider";
+  }
+}
+
+function searchableValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function entrySearchText(entry: TrackEntry): string {
+  const providerKind = entry.providerRecordKind ?? "";
+  switch (entry.kind) {
+    case "message": return `${entry.role}\n${entry.text}\n${providerKind}`;
+    case "reasoning": return `${entry.text ?? ""}\n${providerKind}`;
+    case "tool_call": return `${entry.name}\n${searchableValue(entry.input)}\n${providerKind}`;
+    case "tool_result": return `${searchableValue(entry.content)}\n${providerKind}`;
+    case "status": return `${entry.label}\n${entry.detail ?? ""}\n${entry.tone}\n${providerKind}`;
+    case "unsupported": return `${entry.summary}\n${providerKind}`;
   }
 }
 
@@ -376,6 +398,82 @@ function ViewToggle({ mode, onChange }: { mode: ViewMode; onChange(mode: ViewMod
         <Icon name="full" size="sm" />
         Full trace
       </button>
+    </div>
+  );
+}
+
+function TraceSearch({
+  query,
+  searchMode,
+  matchCount,
+  totalCount,
+  error,
+  onQueryChange,
+  onSearchModeChange,
+  onClear,
+}: {
+  query: string;
+  searchMode: TraceSearchMode;
+  matchCount: number;
+  totalCount: number;
+  error: string | null;
+  onQueryChange(value: string): void;
+  onSearchModeChange(mode: TraceSearchMode): void;
+  onClear(): void;
+}) {
+  const active = query.length > 0;
+  return (
+    <div
+      className="trace-search"
+      role="search"
+      aria-label="Filter current session"
+      data-invalid={Boolean(error)}
+      title={error ?? undefined}
+    >
+      <Icon name="search" size="sm" />
+      <input
+        value={query}
+        onChange={(event) => onQueryChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape" && active) {
+            event.stopPropagation();
+            onClear();
+          }
+        }}
+        placeholder="Filter session"
+        aria-label="Filter session entries"
+        aria-invalid={Boolean(error)}
+        aria-describedby={active ? "trace-search-status" : undefined}
+        autoComplete="off"
+        spellCheck={false}
+      />
+      <button
+        className="trace-search-mode"
+        type="button"
+        aria-label="Use regular expression"
+        title="Use regular expression"
+        aria-pressed={searchMode === "regex"}
+        data-active={searchMode === "regex"}
+        onClick={() => onSearchModeChange(searchMode === "regex" ? "text" : "regex")}
+      >
+        .*
+      </button>
+      {active ? (
+        <output id="trace-search-status" aria-live="polite">
+          {error ? "Invalid" : `${matchCount}/${totalCount}`}
+        </output>
+      ) : null}
+      {active ? (
+        <button
+          className="trace-search-clear"
+          type="button"
+          aria-label="Clear trace search"
+          title="Clear search"
+          onClick={onClear}
+        >
+          <Icon name="close" size="xs" />
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -670,6 +768,8 @@ export function App() {
   const [mode, setMode] = useState<ViewMode>(readModeFromLocation);
   const [sidebarGroup, setSidebarGroup] = useState<SidebarGroupMode>(readSidebarGroupFromLocation);
   const [traceOrder, setTraceOrder] = useState<TraceOrder>(readTraceOrderFromLocation);
+  const [traceQuery, setTraceQuery] = useState("");
+  const [traceSearchMode, setTraceSearchMode] = useState<TraceSearchMode>("text");
   const [activeFilters, setActiveFilters] = useState<Set<EntryFilter>>(readFiltersFromLocation);
   const [activeToolFilters, setActiveToolFilters] = useState<Set<ToolIntent>>(readToolFiltersFromLocation);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -702,6 +802,11 @@ export function App() {
 
   useEffect(() => {
     selectedIdRef.current = selectedId;
+  }, [selectedId]);
+
+  useEffect(() => {
+    setTraceQuery("");
+    setTraceSearchMode("text");
   }, [selectedId]);
 
   useEffect(() => {
@@ -907,9 +1012,40 @@ export function App() {
     });
   }, [activeFilters, activeToolFilters, mode, toolCallsById, track]);
 
+  const entrySearchIndex = useMemo(() => new Map(
+    (track?.entries ?? []).map((entry) => [entry.id, entrySearchText(entry)]),
+  ), [track?.entries]);
+
+  const traceSearchResult = useMemo(() => {
+    if (!traceQuery) return { entries: visibleEntries, error: null };
+
+    if (traceSearchMode === "regex") {
+      let pattern: RegExp;
+      try {
+        pattern = new RegExp(traceQuery, "i");
+      } catch {
+        return { entries: [] as TrackEntry[], error: "Invalid regular expression" };
+      }
+      return {
+        entries: visibleEntries.filter((entry) => pattern.test(entrySearchIndex.get(entry.id) ?? "")),
+        error: null,
+      };
+    }
+
+    const normalizedQuery = traceQuery.toLowerCase();
+    return {
+      entries: visibleEntries.filter((entry) =>
+        (entrySearchIndex.get(entry.id) ?? "").toLowerCase().includes(normalizedQuery),
+      ),
+      error: null,
+    };
+  }, [entrySearchIndex, traceQuery, traceSearchMode, visibleEntries]);
+
   const orderedVisibleEntries = useMemo(
-    () => traceOrder === "latest" ? [...visibleEntries].reverse() : visibleEntries,
-    [traceOrder, visibleEntries],
+    () => traceOrder === "latest"
+      ? [...traceSearchResult.entries].reverse()
+      : traceSearchResult.entries,
+    [traceOrder, traceSearchResult.entries],
   );
 
   function toggleFilter(filter: EntryFilter) {
@@ -1032,6 +1168,18 @@ export function App() {
             </div>
           </div>
           <div className="workspace-actions">
+            {track ? (
+              <TraceSearch
+                query={traceQuery}
+                searchMode={traceSearchMode}
+                matchCount={traceSearchResult.entries.length}
+                totalCount={visibleEntries.length}
+                error={traceSearchResult.error}
+                onQueryChange={setTraceQuery}
+                onSearchModeChange={setTraceSearchMode}
+                onClear={() => setTraceQuery("")}
+              />
+            ) : null}
             <CopyButton value={window.location.href} label="Copy link" className="share-button" />
           </div>
         </header>
@@ -1093,15 +1241,29 @@ export function App() {
                       viewer={viewer}
                     />
                   ))}
-                  {visibleEntries.length === 0 ? (
+                  {traceSearchResult.entries.length === 0 ? (
                     <div className="trace-empty">
-                      <span><Icon name="filter" size="lg" /></span>
-                      <strong>{mode === "compact" ? "No narrative entries in this slice" : "No evidence matches"}</strong>
-                      <p>{mode === "compact" ? "Open Full view to inspect provider mechanics." : "Enable one or more evidence filters to continue."}</p>
+                      <span><Icon name={traceQuery ? "search" : "filter"} size="lg" /></span>
+                      <strong>{traceSearchResult.error
+                        ? "Invalid regular expression"
+                        : traceQuery
+                          ? "No entries match this search"
+                          : mode === "compact"
+                            ? "No narrative entries in this slice"
+                            : "No evidence matches"}</strong>
+                      <p>{traceSearchResult.error
+                        ? "Adjust the pattern or switch back to plain text."
+                        : traceQuery
+                          ? `No ${traceSearchMode === "regex" ? "regex" : "text"} matches in the current ${mode === "compact" ? "Highlights" : "Full trace"} filters.`
+                          : mode === "compact"
+                            ? "Open Full view to inspect provider mechanics."
+                            : "Enable one or more evidence filters to continue."}</p>
                       <button
                         type="button"
                         onClick={() => {
-                          if (mode === "compact") {
+                          if (traceQuery) {
+                            setTraceQuery("");
+                          } else if (mode === "compact") {
                             setMode("full");
                           } else {
                             setActiveFilters(new Set(ALL_ENTRY_FILTERS));
@@ -1109,7 +1271,7 @@ export function App() {
                           }
                         }}
                       >
-                        {mode === "compact" ? "Open Full view" : "Show all evidence"}
+                        {traceQuery ? "Clear search" : mode === "compact" ? "Open Full view" : "Show all evidence"}
                       </button>
                     </div>
                   ) : null}

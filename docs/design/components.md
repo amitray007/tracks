@@ -165,12 +165,14 @@ Local links should use stable Tracks IDs rather than exposing raw absolute paths
 Filters operate on canonical event kinds, not provider names. They support:
 
 - User, assistant, reasoning, tools, commands, file changes, sub-agents, errors.
-- Text search within the current track.
+- Case-insensitive text and regular-expression filtering within the current Compact or Full projection, with live match counts and invalid-pattern feedback.
 - “Only failures,” “only changed files,” and “hide reasoning” quick filters.
 - A visible count and active state for each category.
 - Clear-all from keyboard and pointer.
 
 Filtering should not destroy scroll position. When the selected entry is filtered out, move selection to the nearest visible entry and announce the change.
+
+The track search field lives in the sticky workspace header rather than the wide-only details rail. This keeps it reachable while reading long traces and at breakpoints where the rail is hidden. Search terms are ephemeral local UI state and are not added to copied session URLs.
 
 ### TrackInspector
 

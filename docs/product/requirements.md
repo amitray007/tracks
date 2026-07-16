@@ -70,7 +70,7 @@ Priority levels:
 | TRK-01 | P0 | Render canonical entries in chronological provider order by default, with a stable URL-addressable latest-first presentation that does not mutate canonical sequence or deep links. |
 | TRK-02 | P0 | Support user, assistant, reasoning, tool call/result, command, file change, sub-agent, status, error, and unsupported entries. |
 | TRK-03 | P0 | Filter visible entries by canonical kind without reparsing the source. |
-| TRK-04 | P0 | Search within a track and move between matches. |
+| TRK-04 | P0 | Filter the current Compact or Full track projection with case-insensitive text or regular expressions, including live match counts, invalid-pattern feedback, and an explicit clear action. |
 | TRK-05 | P0 | Expand/collapse tool requests, results, reasoning, raw data, and diffs. |
 | TRK-06 | P0 | Distinguish provider truncation, Tracks collapsing, unavailable data, redaction, and parse failure. |
 | TRK-07 | P0 | Preserve raw provider payload access for every entry when safe and available. |
