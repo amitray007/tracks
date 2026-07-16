@@ -1,0 +1,6 @@
+{"type":"user","uuid":"user-1","sessionId":"fixture-session","timestamp":"2026-07-16T08:00:00.000Z","cwd":"/workspace/example","message":{"content":[{"type":"text","text":"Please inspect the project without changing files."}]}}
+{"type":"assistant","uuid":"assistant-1","sessionId":"fixture-session","timestamp":"2026-07-16T08:00:01.000Z","message":{"content":[{"type":"thinking","thinking":"I should start by listing the relevant files."},{"type":"tool_use","id":"tool-1","name":"Glob","input":{"pattern":"src/**/*.ts"}}]}}
+{"type":"user","uuid":"result-1","sessionId":"fixture-session","timestamp":"2026-07-16T08:00:02.000Z","message":{"content":[{"type":"tool_result","tool_use_id":"tool-1","content":"src/index.ts"}]}}
+{"type":"assistant","uuid":"assistant-2","sessionId":"fixture-session","timestamp":"2026-07-16T08:00:03.000Z","message":{"content":[{"type":"text","text":"The project has one TypeScript entry point."}]}}
+{"type":"future-event","uuid":"future-1","timestamp":"2026-07-16T08:00:04.000Z","payload":{"safe":true}}
+not-json

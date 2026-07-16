@@ -17,7 +17,35 @@ The initial and current implementation focus is Claude Code. The ingestion and c
 - Offer compact and full views of the same evidence.
 - Turn one session or a reviewed project session set into a sanitized static share bundle that can be hosted independently.
 
-The project is currently in the documentation and architecture-foundation stage.
+The first Claude Code vertical slice is now runnable. It discovers top-level local sessions, normalizes bounded transcript slices, serves them through a loopback API, and renders compact/full views in the web UI.
+
+## Development
+
+Requirements: Node.js 22 or newer and pnpm 10.33.2 through Corepack.
+
+```sh
+pnpm install
+pnpm check
+pnpm dev
+```
+
+`pnpm dev` uses the pinned Portless dependency and exposes the web UI at `https://tracks.localhost` with the API at `https://api.tracks.localhost`. The first Portless run may require its local certificate trust setup.
+
+For a plain HTTP fallback without Portless:
+
+```sh
+pnpm dev:plain
+```
+
+This starts the web UI at `http://127.0.0.1:4317` and the API at `http://127.0.0.1:4318`.
+
+The foreground CLI path serves the production web build and opens an ephemeral loopback URL:
+
+```sh
+pnpm build
+pnpm tracks -- doctor
+pnpm tracks -- serve --no-open
+```
 
 ## Documentation
 
@@ -30,6 +58,7 @@ Start with the [documentation index](docs/README.md).
 - [Canonical session model](docs/architecture/session-model.md)
 - [CLI and local runtime](docs/architecture/cli-runtime.md)
 - [Sharing and hosting](docs/architecture/sharing-hosting.md)
+- [Initial runtime decision](docs/architecture/decisions/0001-typescript-loopback-runtime.md)
 - [Claude Code provider evidence](docs/providers/claude-code.md)
 - [Design documentation](docs/design/README.md)
 - [Delivery roadmap](docs/roadmap.md)
@@ -52,4 +81,6 @@ Shared components render a documented minimum canonical shape and treat richer p
 
 ## Status
 
-The project remains in the documentation and evidence-foundation stage. Portless is selected and will be pinned for stable local development URLs/port management; it is not a shipped runtime dependency. The remaining stack proposal—React, a CLI-launched localhost service, SQLite/FTS, Radix UI, a semantic icon layer backed initially by Hugeicons Free, Streamdown, Shiki, and @pierre/diffs—remains subject to validation with sanitized Claude Code fixtures and the measured local corpus.
+Implemented now: a pnpm/TypeScript workspace, canonical runtime schemas, provider SDK boundary, bounded Claude Code JSONL discovery/parsing, a tested Node loopback API, foreground CLI, production web serving, responsive React session library, compact/full views, and the semantic Hugeicons Free registry.
+
+The implementation intentionally remains a vertical slice. Background CLI lifecycle, SQLite/FTS, live watching, revision-checked raw inspection, rich Markdown/diff rendering, redaction/export, and sharing/hosting are still roadmap work. Portless is pinned for development only and is not a shipped runtime dependency.

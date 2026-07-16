@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+.vite/
+*.tsbuildinfo
+.DS_Store
+
+# Tracks runtime state and local-only exports
+.tracks/
+tracks-share-*/
+
+# Local environment overrides
+.env
+.env.local
+.env.*.local

@@ -1,0 +1,131 @@
+import { z } from "zod";
+
+export const AvailabilitySchema = z.enum([
+  "available",
+  "unavailable",
+  "redacted",
+  "partial",
+  "stale",
+]);
+
+export type Availability = z.infer<typeof AvailabilitySchema>;
+
+export const TrackCapabilitiesSchema = z.object({
+  reasoning: z.boolean(),
+  toolResults: z.boolean(),
+  usage: z.boolean(),
+  fileChanges: z.boolean(),
+  subagents: z.boolean(),
+  rawEvidence: z.boolean(),
+});
+
+export type TrackCapabilities = z.infer<typeof TrackCapabilitiesSchema>;
+
+export const TrackSummarySchema = z.object({
+  id: z.string().min(1),
+  providerId: z.string().min(1),
+  providerLabel: z.string().min(1),
+  projectId: z.string().min(1),
+  projectLabel: z.string().min(1),
+  title: z.string().min(1),
+  startedAt: z.string().datetime().nullable(),
+  updatedAt: z.string().datetime(),
+  entryCount: z.number().int().nonnegative().nullable(),
+  sourceBytes: z.number().int().nonnegative(),
+  state: z.enum(["live", "recent", "complete", "unknown", "partial"]),
+  capabilities: TrackCapabilitiesSchema,
+});
+
+export type TrackSummary = z.infer<typeof TrackSummarySchema>;
+
+const EntryBaseSchema = z.object({
+  id: z.string().min(1),
+  sequence: z.number().int().nonnegative(),
+  timestamp: z.string().datetime().nullable(),
+  providerRecordKind: z.string().nullable(),
+});
+
+export const MessageEntrySchema = EntryBaseSchema.extend({
+  kind: z.literal("message"),
+  role: z.enum(["user", "assistant", "system"]),
+  text: z.string(),
+});
+
+export const ReasoningEntrySchema = EntryBaseSchema.extend({
+  kind: z.literal("reasoning"),
+  text: z.string().nullable(),
+  availability: AvailabilitySchema,
+});
+
+export const ToolCallEntrySchema = EntryBaseSchema.extend({
+  kind: z.literal("tool_call"),
+  toolUseId: z.string().nullable(),
+  name: z.string().min(1),
+  category: z.enum(["command", "read", "search", "write", "agent", "other"]),
+  input: z.unknown(),
+});
+
+export const ToolResultEntrySchema = EntryBaseSchema.extend({
+  kind: z.literal("tool_result"),
+  toolUseId: z.string().nullable(),
+  content: z.unknown(),
+  isError: z.boolean(),
+});
+
+export const StatusEntrySchema = EntryBaseSchema.extend({
+  kind: z.literal("status"),
+  label: z.string().min(1),
+  detail: z.string().nullable(),
+  tone: z.enum(["neutral", "success", "warning", "danger"]),
+});
+
+export const UnsupportedEntrySchema = EntryBaseSchema.extend({
+  kind: z.literal("unsupported"),
+  summary: z.string().min(1),
+  rawAvailable: z.boolean(),
+});
+
+export const TrackEntrySchema = z.discriminatedUnion("kind", [
+  MessageEntrySchema,
+  ReasoningEntrySchema,
+  ToolCallEntrySchema,
+  ToolResultEntrySchema,
+  StatusEntrySchema,
+  UnsupportedEntrySchema,
+]);
+
+export type MessageEntry = z.infer<typeof MessageEntrySchema>;
+export type ReasoningEntry = z.infer<typeof ReasoningEntrySchema>;
+export type ToolCallEntry = z.infer<typeof ToolCallEntrySchema>;
+export type ToolResultEntry = z.infer<typeof ToolResultEntrySchema>;
+export type StatusEntry = z.infer<typeof StatusEntrySchema>;
+export type UnsupportedEntry = z.infer<typeof UnsupportedEntrySchema>;
+export type TrackEntry = z.infer<typeof TrackEntrySchema>;
+
+export const TrackDiagnosticSchema = z.object({
+  severity: z.enum(["info", "warning", "error"]),
+  code: z.string().min(1),
+  message: z.string().min(1),
+  approximateLine: z.number().int().positive().nullable(),
+});
+
+export type TrackDiagnostic = z.infer<typeof TrackDiagnosticSchema>;
+
+export const TrackSchema = z.object({
+  summary: TrackSummarySchema,
+  entries: z.array(TrackEntrySchema),
+  diagnostics: z.array(TrackDiagnosticSchema),
+  truncated: z.boolean(),
+  nextSequence: z.number().int().nonnegative().nullable(),
+});
+
+export type Track = z.infer<typeof TrackSchema>;
+
+export const TrackLibrarySchema = z.object({
+  tracks: z.array(TrackSummarySchema),
+  scannedAt: z.string().datetime(),
+  sourceState: z.enum(["ready", "missing", "unreadable"]),
+  sourceMessage: z.string().nullable(),
+});
+
+export type TrackLibrary = z.infer<typeof TrackLibrarySchema>;
