@@ -1,7 +1,9 @@
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import type {
+  EntryRelation,
   EntryActivity,
+  SubAgentEntry,
   Track,
   TrackDiagnostic,
   TrackEntry,
@@ -34,6 +36,12 @@ interface ClaudeTaskNotification {
     toolUses: number | null;
     durationMs: number | null;
   };
+}
+
+interface AgentInvocationEvidence {
+  entryId: string;
+  label: string | null;
+  objective: string | null;
 }
 
 function taggedValue(source: string, tag: string, useLastClosingTag = false): string | null {
@@ -82,6 +90,28 @@ function parseTaskNotification(value: string): ClaudeTaskNotification | null {
       durationMs: taggedNumber(usageSource, "duration_ms"),
     },
   };
+}
+
+function subagentStatus(value: string | null, isError: boolean): SubAgentEntry["status"] {
+  if (isError) return "failed";
+  switch (value?.toLocaleLowerCase()) {
+    case "waiting":
+    case "queued": return "waiting";
+    case "running":
+    case "in_progress": return "running";
+    case "completed":
+    case "complete":
+    case "success":
+    case "succeeded": return "complete";
+    case "failed":
+    case "failure":
+    case "error": return "failed";
+    case "cancelled":
+    case "canceled":
+    case "interrupted": return "cancelled";
+    case "partial": return "partial";
+    default: return "unknown";
+  }
 }
 
 function toolCategory(name: string): ToolCallEntry["category"] {
@@ -582,6 +612,100 @@ function entriesFromRecord(
   ];
 }
 
+function agentInvocationEvidence(entry: ToolCallEntry): AgentInvocationEvidence {
+  const input = toolInputRecord(entry.input);
+  return {
+    entryId: entry.id,
+    label: asString(input?.subagent_type) ?? asString(input?.agent_type),
+    objective: asString(input?.description) ?? asString(input?.prompt),
+  };
+}
+
+function subagentEntryForResult(
+  record: UnknownRecord,
+  entry: Extract<TrackEntry, { kind: "tool_result" }>,
+  sequence: number,
+  lineNumber: number,
+  invocation: AgentInvocationEvidence | undefined,
+  reference: ClaudeTrackReference,
+): SubAgentEntry | null {
+  const providerResult = isRecord(record.toolUseResult) ? record.toolUseResult : null;
+  const canonicalResult = isRecord(entry.content) ? entry.content : null;
+  const providerAgentId = asString(providerResult?.agentId)
+    ?? asString(providerResult?.agent_id)
+    ?? asString(canonicalResult?.taskId);
+  if (!providerAgentId) return null;
+  const child = reference.childTracksByAgentId[providerAgentId];
+  if (!child) return null;
+  const providerStatus = asString(providerResult?.status) ?? asString(canonicalResult?.status);
+  const durationMs = typeof providerResult?.totalDurationMs === "number"
+    && Number.isFinite(providerResult.totalDurationMs)
+    && providerResult.totalDurationMs >= 0
+    ? Math.round(providerResult.totalDurationMs)
+    : typeof (isRecord(canonicalResult?.usage) ? canonicalResult.usage.durationMs : null) === "number"
+      ? Math.round((canonicalResult?.usage as UnknownRecord).durationMs as number)
+      : null;
+  const providerId = asString(record.uuid) ?? asString(record.id);
+  return {
+    id: providerId
+      ? `${providerId}:subagent:${providerAgentId}`
+      : `subagent:${stableId(lineNumber, providerAgentId)}`,
+    sequence,
+    timestamp: entry.timestamp,
+    durationMs,
+    parentEntryId: invocation?.entryId ?? null,
+    providerRecordKind: entry.providerRecordKind,
+    kind: "sub_agent",
+    childTrackId: child.trackId,
+    childProviderSessionId: providerAgentId,
+    label: asString(providerResult?.agentType)
+      ?? asString(providerResult?.agent_type)
+      ?? invocation?.label
+      ?? "Sub-agent",
+    objective: invocation?.objective ?? child.title,
+    status: subagentStatus(providerStatus, entry.isError),
+  };
+}
+
+function augmentRecordEntries(
+  record: UnknownRecord,
+  lineNumber: number,
+  sequenceStart: number,
+  entries: TrackEntry[],
+  toolCallsByUseId: Map<string, AgentInvocationEvidence>,
+  reference: ClaudeTrackReference,
+): TrackEntry[] {
+  const augmented: TrackEntry[] = [];
+  for (const sourceEntry of entries) {
+    const entry = { ...sourceEntry, sequence: sequenceStart + augmented.length } as TrackEntry;
+    if (entry.kind === "tool_call" && entry.toolUseId) {
+      toolCallsByUseId.set(entry.toolUseId, agentInvocationEvidence(entry));
+      augmented.push(entry);
+      continue;
+    }
+    if (entry.kind === "tool_result") {
+      const invocation = entry.toolUseId ? toolCallsByUseId.get(entry.toolUseId) : undefined;
+      const child = subagentEntryForResult(
+        record,
+        entry,
+        sequenceStart + augmented.length,
+        lineNumber,
+        invocation,
+        reference,
+      );
+      if (child) augmented.push(child);
+      augmented.push({
+        ...entry,
+        sequence: sequenceStart + augmented.length,
+        parentEntryId: invocation?.entryId ?? null,
+      });
+      continue;
+    }
+    augmented.push(entry);
+  }
+  return augmented;
+}
+
 export async function parseClaudeTrack(
   summary: TrackSummary,
   reference: ClaudeTrackReference,
@@ -595,6 +719,7 @@ export async function parseClaudeTrack(
   let sequence = 0;
   let lineNumber = 0;
   let truncated = false;
+  const toolCallsByUseId = new Map<string, AgentInvocationEvidence>();
 
   const input = createReadStream(reference.sourcePath, { encoding: "utf8" });
   const lines = createInterface({ input, crlfDelay: Number.POSITIVE_INFINITY });
@@ -644,7 +769,14 @@ export async function parseClaudeTrack(
     }
 
     if (isRecord(parsed)) {
-      const recordEntries = entriesFromRecord(parsed, lineNumber, sequence);
+      const recordEntries = augmentRecordEntries(
+        parsed,
+        lineNumber,
+        sequence,
+        entriesFromRecord(parsed, lineNumber, sequence),
+        toolCallsByUseId,
+        reference,
+      );
       for (const entry of recordEntries) {
         collectEntry(entry);
       }
@@ -680,6 +812,27 @@ export async function parseClaudeTrack(
     truncated = (entries[0]?.sequence ?? 0) > 0;
   }
 
+  const relations: EntryRelation[] = [];
+  for (const entry of entries) {
+    if (entry.kind === "sub_agent" && entry.parentEntryId) {
+      relations.push({
+        type: "parent-child",
+        fromEntryId: entry.parentEntryId,
+        toEntryId: entry.id,
+      });
+    }
+    if (entry.kind === "tool_result" && entry.toolUseId) {
+      const call = toolCallsByUseId.get(entry.toolUseId);
+      if (call) {
+        relations.push({
+          type: "tool-call-result",
+          fromEntryId: call.entryId,
+          toEntryId: entry.id,
+        });
+      }
+    }
+  }
+
   return {
     summary: {
       ...summary,
@@ -690,6 +843,7 @@ export async function parseClaudeTrack(
           : sequence,
     },
     entries,
+    relations,
     diagnostics,
     truncated,
     nextSequence: direction === "forward" && truncated ? startSequence + entries.length : null,

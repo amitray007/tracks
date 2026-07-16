@@ -9,6 +9,7 @@ import {
 } from "react";
 import type {
   ActivityKind,
+  SubAgentEntry,
   Track,
   TrackEntry,
   TrackSummary,
@@ -36,6 +37,7 @@ import {
   activityForEntry,
   activityIcon,
 } from "./trace/ActivityEvent";
+import { SubAgentEventBody } from "./trace/SubAgentEvent";
 import { CopyButton } from "./ui/CopyButton";
 import { ClaudeCodeIcon } from "./ui/ClaudeCodeIcon";
 import { Icon, type IconName } from "./ui/Icon";
@@ -43,7 +45,7 @@ import { MarkdownContent } from "./ui/MarkdownContent";
 
 type ViewMode = "compact" | "full";
 type LiveState = "connecting" | "live" | "reconnecting";
-type EntryFilter = "messages" | "reasoning" | "tools" | "results" | "status" | "provider";
+type EntryFilter = "messages" | "reasoning" | "tools" | "results" | "subagents" | "status" | "provider";
 type SidebarGroupMode = "time" | "project";
 type TraceOrder = "oldest" | "latest";
 type TraceSearchMode = "text" | "regex";
@@ -60,6 +62,7 @@ const ENTRY_FILTERS: ReadonlyArray<{
   { id: "reasoning", label: "Reasoning", icon: "reasoning" },
   { id: "tools", label: "Tool calls", icon: "tool" },
   { id: "results", label: "Tool results", icon: "result" },
+  { id: "subagents", label: "Sub-agents", icon: "agent" },
   { id: "status", label: "Status", icon: "status" },
   { id: "provider", label: "Provider events", icon: "info" },
 ];
@@ -70,6 +73,7 @@ const DEFAULT_ENTRY_FILTERS: ReadonlyArray<EntryFilter> = [
   "reasoning",
   "tools",
   "results",
+  "subagents",
 ];
 
 const TOOL_FILTERS: ReadonlyArray<{
@@ -113,6 +117,7 @@ function filterForEntry(entry: TrackEntry): EntryFilter {
     case "reasoning": return "reasoning";
     case "tool_call": return "tools";
     case "tool_result": return "results";
+    case "sub_agent": return "subagents";
     case "status": return "status";
     case "unsupported": return "provider";
   }
@@ -137,6 +142,7 @@ function entrySearchText(entry: TrackEntry): string {
     case "reasoning": return `${entry.text ?? ""}\n${activity}\n${providerKind}`;
     case "tool_call": return `${entry.name}\n${searchableValue(entry.input)}\n${activity}\n${providerKind}`;
     case "tool_result": return `${searchableValue(entry.content)}\n${activity}\n${providerKind}`;
+    case "sub_agent": return `${entry.label ?? ""}\n${entry.objective ?? ""}\n${entry.status}\n${entry.childProviderSessionId ?? ""}\n${providerKind}`;
     case "status": return `${entry.label}\n${entry.detail ?? ""}\n${entry.tone}\n${activity}\n${providerKind}`;
     case "unsupported": return `${entry.summary}\n${activity}\n${providerKind}`;
   }
@@ -158,6 +164,13 @@ function mergeTrackPage(current: Track, page: Track): Track {
     diagnosticKeys.add(key);
     return true;
   });
+  const relationKeys = new Set<string>();
+  const relations = [...current.relations, ...page.relations].filter((relation) => {
+    const key = `${relation.type}:${relation.fromEntryId}:${relation.toEntryId}`;
+    if (relationKeys.has(key)) return false;
+    relationKeys.add(key);
+    return true;
+  });
   return {
     ...page,
     summary: {
@@ -165,6 +178,7 @@ function mergeTrackPage(current: Track, page: Track): Track {
       entryCount: page.summary.entryCount ?? current.summary.entryCount,
     },
     entries,
+    relations,
     diagnostics,
   };
 }
@@ -254,6 +268,7 @@ function formatBytes(value: number): string {
 function entryPresentation(
   entry: TrackEntry,
   relatedToolCall?: ToolCallEntry,
+  isSubagentTrack = false,
 ): { icon: IconName; label: string; tone: string } {
   const activity = activityForEntry(entry, relatedToolCall);
   if (activity && entry.kind !== "tool_call" && entry.kind !== "tool_result") {
@@ -268,7 +283,9 @@ function entryPresentation(
   switch (entry.kind) {
     case "message":
       return entry.role === "user"
-        ? { icon: "user", label: "You", tone: "user" }
+        ? isSubagentTrack
+          ? { icon: "agent", label: "Task", tone: "agent" }
+          : { icon: "user", label: "You", tone: "user" }
         : entry.role === "assistant"
           ? { icon: "assistant", label: "Claude", tone: "assistant" }
           : { icon: "info", label: "System", tone: "neutral" };
@@ -288,6 +305,8 @@ function entryPresentation(
             label: toolResultHeadline(relatedToolCall, false),
             tone: relatedToolCall ? toolTone(relatedToolCall) : "result",
           };
+    case "sub_agent":
+      return { icon: "agent", label: entry.label ? `Sub-agent · ${entry.label}` : "Sub-agent", tone: "agent" };
     case "status":
       return { icon: entry.tone === "danger" ? "error" : "status", label: entry.label, tone: entry.tone };
     case "unsupported":
@@ -295,9 +314,11 @@ function entryPresentation(
   }
 }
 
-function EntryBody({ entry, relatedToolCall }: {
+function EntryBody({ entry, relatedToolCall, relatedSubAgent, onOpenTrack }: {
   entry: TrackEntry;
   relatedToolCall: ToolCallEntry | undefined;
+  relatedSubAgent: SubAgentEntry | undefined;
+  onOpenTrack(trackId: string): void;
 }) {
   if (entry.activity && entry.kind !== "tool_call" && entry.kind !== "tool_result") {
     return <ActivityEventBody entry={entry} />;
@@ -316,9 +337,11 @@ function EntryBody({ entry, relatedToolCall }: {
         </details>
       );
     case "tool_call":
-      return <ToolCallBody entry={entry} />;
+      return <ToolCallBody entry={entry} relatedSubAgent={relatedSubAgent} onOpenTrack={onOpenTrack} />;
     case "tool_result":
       return <ToolResultBody entry={entry} call={relatedToolCall} />;
+    case "sub_agent":
+      return <SubAgentEventBody entry={entry} onOpenTrack={onOpenTrack} />;
     case "status":
       return entry.detail ? <div className="entry-prose subtle-copy"><MarkdownContent value={entry.detail} /></div> : null;
     case "unsupported":
@@ -335,15 +358,20 @@ function EntryNode({
   entry,
   icon,
   viewer,
+  isSubagentTrack,
 }: {
   entry: TrackEntry;
   icon: IconName;
   viewer: ViewerIdentity | null;
+  isSubagentTrack: boolean;
 }) {
   if (entry.activity) {
     return <span className="entry-node activity-entry-node" data-kind={entry.activity.kind}><Icon name={activityIcon(entry.activity)} size="sm" /></span>;
   }
   if (entry.kind === "message" && entry.role === "user") {
+    if (isSubagentTrack) {
+      return <span className="entry-node subagent-task-node"><Icon name="agent" size="sm" /></span>;
+    }
     return (
       <span className="entry-avatar-shell">
         <Icon name="user" size="sm" />
@@ -364,13 +392,24 @@ function EntryNode({
   return <span className="entry-node"><Icon name={icon} size="sm" /></span>;
 }
 
-function EntryFrame({ entry, relatedToolCall, viewer, totalEntries }: {
+function EntryFrame({
+  entry,
+  relatedToolCall,
+  relatedSubAgent,
+  viewer,
+  totalEntries,
+  isSubagentTrack,
+  onOpenTrack,
+}: {
   entry: TrackEntry;
   relatedToolCall: ToolCallEntry | undefined;
+  relatedSubAgent: SubAgentEntry | undefined;
   viewer: ViewerIdentity | null;
   totalEntries: number | null;
+  isSubagentTrack: boolean;
+  onOpenTrack(trackId: string): void;
 }) {
-  const presentation = entryPresentation(entry, relatedToolCall);
+  const presentation = entryPresentation(entry, relatedToolCall, isSubagentTrack);
   return (
     <article
       className={`entry entry-${entry.kind} tone-${presentation.tone}`}
@@ -379,7 +418,7 @@ function EntryFrame({ entry, relatedToolCall, viewer, totalEntries }: {
       aria-setsize={totalEntries ?? undefined}
     >
       <div className="entry-rail" aria-hidden="true">
-        <EntryNode entry={entry} icon={presentation.icon} viewer={viewer} />
+        <EntryNode entry={entry} icon={presentation.icon} viewer={viewer} isSubagentTrack={isSubagentTrack} />
       </div>
       <div className="entry-content">
         <header className="entry-header">
@@ -395,7 +434,12 @@ function EntryFrame({ entry, relatedToolCall, viewer, totalEntries }: {
             {entry.kind === "message" ? <CopyButton value={entry.text} label="Copy message" className="entry-copy" /> : null}
           </span>
         </header>
-        <EntryBody entry={entry} relatedToolCall={relatedToolCall} />
+        <EntryBody
+          entry={entry}
+          relatedToolCall={relatedToolCall}
+          relatedSubAgent={relatedSubAgent}
+          onOpenTrack={onOpenTrack}
+        />
       </div>
     </article>
   );
@@ -696,13 +740,14 @@ function SessionOverview({ track, mode }: { track: Track; mode: ViewMode }) {
     (entry) => entry.kind === "message" && entry.role === "assistant",
   ).length;
   const toolCalls = track.entries.filter((entry) => entry.kind === "tool_call");
+  const subagents = track.entries.filter((entry) => entry.kind === "sub_agent");
   const uniqueTools = new Set(toolCalls.map((entry) => entry.name)).size;
   const errors = track.entries.filter((entry) =>
     (entry.kind === "tool_result" && entry.isError)
     || (entry.kind === "status" && entry.tone === "danger"),
   ).length;
   const providerEvents = track.entries.filter((entry) => entry.kind === "unsupported").length;
-  const mechanics = track.entries.length - userMessages - assistantMessages - errors;
+  const mechanics = track.entries.length - userMessages - assistantMessages - errors - subagents.length;
 
   return (
     <section className="session-overview" aria-label="Loaded session overview">
@@ -722,7 +767,10 @@ function SessionOverview({ track, mode }: { track: Track; mode: ViewMode }) {
         <div>
           <Icon name="tool" size="sm" />
           <span>Work</span>
-          <strong>{toolCalls.length} tool calls across {uniqueTools} distinct tools.</strong>
+          <strong>
+            {toolCalls.length} tool calls across {uniqueTools} distinct tools
+            {subagents.length > 0 ? ` · ${subagents.length} linked sub-agent${subagents.length === 1 ? "" : "s"}.` : "."}
+          </strong>
         </div>
         <div>
           <Icon name={errors > 0 ? "warning" : "status"} size="sm" />
@@ -1263,6 +1311,7 @@ export function App() {
       reasoning: 0,
       tools: 0,
       results: 0,
+      subagents: 0,
       status: 0,
       provider: 0,
     };
@@ -1276,6 +1325,16 @@ export function App() {
       if (entry.kind === "tool_call" && entry.toolUseId) calls.set(entry.toolUseId, entry);
     }
     return calls;
+  }, [track]);
+
+  const subagentsByParentEntryId = useMemo(() => {
+    const children = new Map<string, SubAgentEntry>();
+    for (const entry of track?.entries ?? []) {
+      if (entry.kind === "sub_agent" && entry.parentEntryId) {
+        children.set(entry.parentEntryId, entry);
+      }
+    }
+    return children;
   }, [track]);
 
   const toolFilterCounts = useMemo<Record<ToolIntent, number>>(() => {
@@ -1318,6 +1377,7 @@ export function App() {
     if (mode === "compact") {
       return track.entries.filter((entry) =>
         (entry.kind === "message" && entry.role !== "system")
+        || entry.kind === "sub_agent"
         || (entry.kind === "tool_result" && entry.isError)
         || (entry.kind === "status" && (entry.tone === "warning" || entry.tone === "danger")),
       );
@@ -1551,9 +1611,13 @@ export function App() {
               <>
                 <header className="track-hero">
                   <div className="track-eyebrow">
-                    <span className={`state-badge state-${track.summary.state}`}>
-                      <span />{track.summary.state === "unknown" ? "Saved session" : track.summary.state}
-                    </span>
+                    {track.summary.parentTrackId ? (
+                      <span className="subagent-track-badge"><Icon name="agent" size="xs" />Sub-agent transcript</span>
+                    ) : (
+                      <span className={`state-badge state-${track.summary.state}`}>
+                        <span />{track.summary.state === "unknown" ? "Saved session" : track.summary.state}
+                      </span>
+                    )}
                     <span>{formatDate(track.summary.startedAt)}</span>
                   </div>
                   <h1>{track.summary.title}</h1>
@@ -1564,6 +1628,15 @@ export function App() {
                       <span>{track.summary.providerLabel}</span>
                     </span>
                     <span>{formatBytes(track.summary.sourceBytes)}</span>
+                    {track.summary.parentTrackId ? (
+                      <button
+                        className="parent-session-link"
+                        type="button"
+                        onClick={() => selectTrack(track.summary.parentTrackId!)}
+                      >
+                        <Icon name="up" size="xs" />Parent session
+                      </button>
+                    ) : null}
                   </div>
                   <ViewToggle mode={mode} onChange={setMode} />
                 </header>
@@ -1589,8 +1662,13 @@ export function App() {
                       relatedToolCall={entry.kind === "tool_result" && entry.toolUseId
                         ? toolCallsById.get(entry.toolUseId)
                         : undefined}
+                      relatedSubAgent={entry.kind === "tool_call"
+                        ? subagentsByParentEntryId.get(entry.id)
+                        : undefined}
                       viewer={viewer}
                       totalEntries={track.summary.entryCount}
+                      isSubagentTrack={Boolean(track.summary.parentTrackId)}
+                      onOpenTrack={selectTrack}
                     />
                   ))}
                   {traceSearchResult.entries.length === 0 ? (

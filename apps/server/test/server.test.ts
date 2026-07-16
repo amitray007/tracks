@@ -98,6 +98,68 @@ describe("Tracks loopback server", () => {
     expect(latest.summary.entryCount).toBe(1);
   });
 
+  it("keeps child transcripts out of the root library while serving their stable track links", async () => {
+    const sourceRoot = await createSource();
+    const projectRoot = join(sourceRoot, "example-project");
+    const agentId = "server-child";
+    const toolUseId = "toolu-server-child";
+    await mkdir(join(projectRoot, "session", "subagents"), { recursive: true });
+    await writeFile(
+      join(projectRoot, "session", "subagents", `agent-${agentId}.jsonl`),
+      `${JSON.stringify({
+        type: "user",
+        sessionId: "server-fixture",
+        agentId,
+        isSidechain: true,
+        uuid: "server-child-user",
+        timestamp: "2026-07-16T08:00:01.000Z",
+        message: { content: "Inspect the server." },
+      })}\n`,
+      "utf8",
+    );
+    await appendFile(
+      join(projectRoot, "session.jsonl"),
+      [
+        {
+          type: "assistant",
+          sessionId: "server-fixture",
+          uuid: "server-agent-call",
+          timestamp: "2026-07-16T08:00:00.500Z",
+          message: { content: [{ type: "tool_use", id: toolUseId, name: "Agent", input: { description: "Inspect server" } }] },
+        },
+        {
+          type: "user",
+          sessionId: "server-fixture",
+          uuid: "server-agent-result",
+          timestamp: "2026-07-16T08:00:02.000Z",
+          message: { content: [{ type: "tool_result", tool_use_id: toolUseId, content: "Done" }] },
+          toolUseResult: { agentId, agentType: "Explore", status: "completed" },
+        },
+      ].map((record) => JSON.stringify(record)).join("\n") + "\n",
+      "utf8",
+    );
+
+    const server = await startTracksServer({ sourceRoot, staticDirectory: false });
+    servers.push(server);
+    const library = await fetch(`${server.url}/api/tracks`).then((response) => response.json()) as {
+      total: number;
+      tracks: Array<{ id: string }>;
+    };
+    expect(library.total).toBe(1);
+    expect(library.tracks).toHaveLength(1);
+    const parentTrack = TrackSchema.parse(await fetch(
+      `${server.url}/api/tracks/${encodeURIComponent(library.tracks[0]!.id)}`,
+    ).then((response) => response.json()));
+    const subagent = parentTrack.entries.find((entry) => entry.kind === "sub_agent");
+    expect(subagent?.kind).toBe("sub_agent");
+    if (!subagent || subagent.kind !== "sub_agent" || !subagent.childTrackId) return;
+    const childTrack = TrackSchema.parse(await fetch(
+      `${server.url}/api/tracks/${encodeURIComponent(subagent.childTrackId)}`,
+    ).then((response) => response.json()));
+    expect(childTrack.summary.parentTrackId).toBe(parentTrack.summary.id);
+    expect(childTrack.entries[0]).toMatchObject({ kind: "message", role: "user" });
+  });
+
   it("rejects non-local origins", async () => {
     const sourceRoot = await createSource();
     const server = await startTracksServer({ sourceRoot, staticDirectory: false });

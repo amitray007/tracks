@@ -685,6 +685,17 @@ code, pre, kbd {
 .state-badge > span { width: 5px; height: 5px; background: var(--text-faint); border-radius: 50%; }
 .state-recent > span, .state-live > span { background: var(--success); }
 
+.subagent-track-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 7px;
+  color: #aeb8df;
+  background: rgba(139, 153, 211, 0.07);
+  border: 1px solid rgba(139, 153, 211, 0.22);
+  border-radius: 4px;
+}
+
 .track-hero h1 {
   max-width: 800px;
   margin: 0;
@@ -697,6 +708,21 @@ code, pre, kbd {
 
 .track-byline { flex-wrap: wrap; gap: 9px 17px; margin-top: 17px; color: #777a7f; font-size: 10px; }
 .track-byline span { gap: 6px; }
+.parent-session-link {
+  min-height: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: -4px 0;
+  padding: 0 7px;
+  color: #8f96b1;
+  background: transparent;
+  border: 1px solid #2b2d33;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 9px;
+}
+.parent-session-link:hover { color: #cbd2ef; background: rgba(139, 153, 211, 0.06); border-color: #414655; }
 
 .session-overview {
   margin: 24px 0 0;
@@ -1544,6 +1570,97 @@ code, pre, kbd {
 .structured-tool-card dl > div { display: grid; grid-template-columns: 105px minmax(0, 1fr); gap: 12px; padding: 5px 0; }
 .structured-tool-card dt { color: #696d73; font-size: 9px; }
 .structured-tool-card dd { overflow: hidden; margin: 0; color: #b9bbbe; font-size: 9.5px; text-overflow: ellipsis; white-space: nowrap; }
+
+.agent-call-card,
+.subagent-entry-card {
+  overflow: hidden;
+  background: #111213;
+  border: 1px solid #292b31;
+  border-left: 2px solid rgba(139, 153, 211, 0.48);
+  border-radius: 5px;
+}
+
+.agent-call-card > header,
+.subagent-entry-card > header {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 9px 0 10px;
+  color: #858b9e;
+  background: #141518;
+  border-bottom: 1px solid #282a2f;
+  font-size: 9px;
+}
+
+.agent-call-card > header > span,
+.subagent-entry-card > header > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 550;
+}
+
+.agent-call-card > header code {
+  overflow: hidden;
+  color: #7d8398;
+  font-size: 8.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-call-objective,
+.subagent-entry-copy { padding: 10px 11px 11px; color: #c0c3ca; font-size: 10.5px; line-height: 1.55; }
+.agent-call-objective > :first-child { margin-top: 0; }
+.agent-call-objective > :last-child { margin-bottom: 0; }
+.agent-call-objective p { margin: 0 0 0.65em; }
+
+.agent-call-card > footer,
+.subagent-entry-card > footer {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 9px 0 10px;
+  color: #686d78;
+  background: #131416;
+  border-top: 1px solid #282a2f;
+  font-size: 8.5px;
+}
+
+.agent-call-actions { display: flex; align-items: center; gap: 10px; }
+.agent-call-actions > button,
+.subagent-entry-card > footer > button {
+  min-height: 23px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 7px;
+  color: #a9b2d5;
+  background: rgba(139, 153, 211, 0.07);
+  border: 1px solid rgba(139, 153, 211, 0.22);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 8.5px;
+}
+.agent-call-actions > button:hover,
+.subagent-entry-card > footer > button:hover { color: #d3d9f2; background: rgba(139, 153, 211, 0.12); border-color: rgba(139, 153, 211, 0.38); }
+
+.subagent-entry-copy { display: grid; gap: 3px; }
+.subagent-entry-copy strong { color: #c8cad0; font-size: 10.5px; font-weight: 520; }
+.subagent-entry-copy span { color: #73798c; font-size: 8.5px; }
+.subagent-status {
+  padding: 2px 5px;
+  color: #9fbd8e;
+  background: rgba(114, 201, 149, 0.06);
+  border: 1px solid rgba(114, 201, 149, 0.2);
+  border-radius: 3px;
+  font-size: 8px;
+}
+.subagent-entry-card[data-status="failed"] { border-left-color: var(--danger); }
+.subagent-entry-card[data-status="failed"] .subagent-status { color: #d98c91; border-color: rgba(214, 101, 107, 0.25); }
 
 .change-result-card {
   display: flex;

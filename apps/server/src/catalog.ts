@@ -35,8 +35,9 @@ export class TrackCatalog {
   async #performRefresh(): Promise<TrackLibrary> {
     const result = await this.adapter.scan();
     this.#descriptors = new Map(result.tracks.map((track) => [track.summary.id, track]));
+    const rootTracks = result.tracks.filter((track) => !track.summary.parentTrackId);
     this.#library = {
-      tracks: result.tracks.map((track) => track.summary),
+      tracks: rootTracks.map((track) => track.summary),
       scannedAt: result.scannedAt,
       sourceState: result.sourceState,
       sourceMessage: result.sourceMessage,

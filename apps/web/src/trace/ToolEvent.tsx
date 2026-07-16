@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import type { ToolCallEntry, ToolResultEntry } from "@tracks/core-model";
+import type { SubAgentEntry, ToolCallEntry, ToolResultEntry } from "@tracks/core-model";
 import { ClaudeCodeIcon } from "../ui/ClaudeCodeIcon";
 import { CopyButton } from "../ui/CopyButton";
 import { languageForPath } from "../ui/codeLanguage";
@@ -386,6 +386,43 @@ function StructuredCall({ entry, input, intent }: {
   );
 }
 
+function AgentCall({
+  entry,
+  input,
+  relatedSubAgent,
+  onOpenTrack,
+}: {
+  entry: ToolCallEntry;
+  input: UnknownRecord | null;
+  relatedSubAgent: SubAgentEntry | undefined;
+  onOpenTrack(trackId: string): void;
+}) {
+  const objective = stringValue(input, "description", "prompt") ?? relatedSubAgent?.objective;
+  const agentType = relatedSubAgent?.label ?? stringValue(input, "subagent_type", "agent_type") ?? "Sub-agent";
+  const childTrackId = relatedSubAgent?.childTrackId;
+  return (
+    <div className="agent-call-card">
+      <header>
+        <span><Icon name="agent" size="sm" />Delegated task</span>
+        <code>{humanize(agentType)}</code>
+      </header>
+      {objective ? <div className="agent-call-objective"><MarkdownContent value={objective} /></div> : null}
+      <footer>
+        <TechnicalLabel entry={entry} />
+        <div className="agent-call-actions">
+          <RawArguments input={entry.input} />
+          {childTrackId ? (
+            <button type="button" onClick={() => onOpenTrack(childTrackId)}>
+              Open transcript
+              <Icon name="link" size="xs" />
+            </button>
+          ) : <span>Transcript pending</span>}
+        </div>
+      </footer>
+    </div>
+  );
+}
+
 function ActivityToolCall({ entry, input }: { entry: ToolCallEntry; input: UnknownRecord | null }) {
   const activity = entry.activity;
   if (!activity) return null;
@@ -429,7 +466,15 @@ function ActivityToolCall({ entry, input }: { entry: ToolCallEntry; input: Unkno
   );
 }
 
-export function ToolCallBody({ entry }: { entry: ToolCallEntry }) {
+export function ToolCallBody({
+  entry,
+  relatedSubAgent,
+  onOpenTrack,
+}: {
+  entry: ToolCallEntry;
+  relatedSubAgent: SubAgentEntry | undefined;
+  onOpenTrack(trackId: string): void;
+}) {
   const input = asRecord(entry.input);
   if (entry.activity?.kind === "skill" || entry.activity?.kind === "mcp" || entry.activity?.kind === "memory") {
     return <ActivityToolCall entry={entry} input={input} />;
@@ -445,7 +490,12 @@ export function ToolCallBody({ entry }: { entry: ToolCallEntry }) {
     case "read": return <ReadCall entry={entry} input={input} />;
     case "search": return <SearchCall entry={entry} input={input} />;
     case "question": return <QuestionCall entry={entry} input={input} />;
-    case "agent":
+    case "agent": return <AgentCall
+      entry={entry}
+      input={input}
+      relatedSubAgent={relatedSubAgent}
+      onOpenTrack={onOpenTrack}
+    />;
     case "calendar":
     case "integration":
     case "other": return <StructuredCall entry={entry} input={input} intent={intent} />;

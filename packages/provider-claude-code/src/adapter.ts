@@ -12,6 +12,7 @@ import type {
 import { sortTracksByUpdatedAt } from "@tracks/provider-sdk";
 import {
   discoverClaudeTracks,
+  type ClaudeEvidenceCache,
   type ClaudeTrackReference,
 } from "./discovery.js";
 import { parseClaudeTrack } from "./parser.js";
@@ -24,6 +25,7 @@ export class ClaudeCodeAdapter implements ProviderAdapter<ClaudeTrackReference> 
   readonly id = "claude-code";
   readonly displayName = "Claude Code";
   readonly sourceRoot: string;
+  readonly evidenceCache: ClaudeEvidenceCache = new Map();
 
   constructor(options: ClaudeCodeAdapterOptions = {}) {
     this.sourceRoot = options.sourceRoot ?? join(homedir(), ".claude", "projects");
@@ -42,7 +44,7 @@ export class ClaudeCodeAdapter implements ProviderAdapter<ClaudeTrackReference> 
     }
 
     try {
-      const tracks = await discoverClaudeTracks(this.sourceRoot);
+      const tracks = await discoverClaudeTracks(this.sourceRoot, this.evidenceCache);
       return {
         tracks: sortTracksByUpdatedAt(tracks),
         scannedAt: new Date().toISOString(),

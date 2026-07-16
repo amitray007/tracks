@@ -198,6 +198,121 @@ describe("ClaudeCodeAdapter", () => {
     )).toBe(true);
   });
 
+  it("discovers validated subagent transcripts and links them to the parent invocation", async () => {
+    const sourceRoot = await createSource();
+    const projectRoot = join(sourceRoot, "example-project");
+    const sessionPath = join(projectRoot, "fixture-session.jsonl");
+    const agentId = "child-a1";
+    const toolUseId = "toolu-child-a1";
+    await writeFile(
+      join(projectRoot, "fixture-session", "subagents", `agent-${agentId}.jsonl`),
+      [
+        {
+          type: "user",
+          sessionId: "fixture-session",
+          agentId,
+          isSidechain: true,
+          uuid: "child-user",
+          timestamp: "2026-07-16T08:02:01.000Z",
+          cwd: "/workspace/example",
+          message: { content: "Inspect the authentication flow." },
+        },
+        {
+          type: "assistant",
+          sessionId: "fixture-session",
+          agentId,
+          attributionAgent: "compound-engineering:ce-auth-flow-analyzer",
+          isSidechain: true,
+          parentUuid: "child-user",
+          uuid: "child-assistant",
+          timestamp: "2026-07-16T08:02:02.000Z",
+          message: { content: [{ type: "text", text: "The flow is documented." }] },
+        },
+      ].map((record) => JSON.stringify(record)).join("\n") + "\n",
+      "utf8",
+    );
+    await appendFile(
+      sessionPath,
+      [
+        {
+          type: "assistant",
+          sessionId: "fixture-session",
+          uuid: "parent-agent-call",
+          timestamp: "2026-07-16T08:02:00.000Z",
+          message: {
+            content: [{
+              type: "tool_use",
+              id: toolUseId,
+              name: "Agent",
+              input: {
+                description: "Inspect authentication",
+                prompt: "Inspect the authentication flow and report findings.",
+                subagent_type: "Explore",
+              },
+            }],
+          },
+        },
+        {
+          type: "user",
+          sessionId: "fixture-session",
+          uuid: "parent-agent-result",
+          timestamp: "2026-07-16T08:02:03.000Z",
+          message: {
+            content: [{
+              type: "tool_result",
+              tool_use_id: toolUseId,
+              content: "The flow is documented.",
+            }],
+          },
+          toolUseResult: {
+            agentId,
+            agentType: "Explore",
+            status: "completed",
+            totalDurationMs: 2_000,
+          },
+        },
+      ].map((record) => JSON.stringify(record)).join("\n") + "\n",
+      "utf8",
+    );
+
+    const adapter = new ClaudeCodeAdapter({ sourceRoot });
+    const scan = await adapter.scan();
+    expect(scan.tracks).toHaveLength(2);
+    const parent = scan.tracks.find((descriptor) => !descriptor.summary.parentTrackId);
+    const child = scan.tracks.find((descriptor) => descriptor.summary.parentTrackId);
+    expect(parent?.summary.capabilities.subagents).toBe(true);
+    expect(child?.summary).toMatchObject({
+      title: "Auth Flow Analyzer",
+      parentTrackId: parent?.summary.id,
+    });
+    expect(parent).toBeDefined();
+    expect(child).toBeDefined();
+    if (!parent || !child) return;
+
+    const parentTrack = await adapter.loadTrack(parent, { entryLimit: 100 });
+    expect(TrackSchema.safeParse(parentTrack).success).toBe(true);
+    const subagent = parentTrack.entries.find((entry) => entry.kind === "sub_agent");
+    expect(subagent).toMatchObject({
+      kind: "sub_agent",
+      childTrackId: child.summary.id,
+      childProviderSessionId: agentId,
+      label: "Explore",
+      objective: "Inspect authentication",
+      status: "complete",
+      durationMs: 2_000,
+      parentEntryId: "parent-agent-call:0",
+    });
+    expect(parentTrack.relations).toContainEqual({
+      type: "parent-child",
+      fromEntryId: "parent-agent-call:0",
+      toEntryId: subagent?.id,
+    });
+
+    const childTrack = await adapter.loadTrack(child, { entryLimit: 100 });
+    expect(childTrack.summary.parentTrackId).toBe(parent.summary.id);
+    expect(childTrack.entries).toHaveLength(2);
+  });
+
   it("normalizes Claude-specific activity without exposing transport wrappers", async () => {
     const sourceRoot = await createSource();
     const sessionPath = join(sourceRoot, "example-project", "fixture-session.jsonl");
