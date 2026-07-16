@@ -86,6 +86,33 @@ describe("ClaudeCodeAdapter", () => {
     expect(track.nextSequence).toBe(3);
   });
 
+  it("returns bounded pages from the latest end without reversing provider order", async () => {
+    const sourceRoot = await createSource();
+    const adapter = new ClaudeCodeAdapter({ sourceRoot });
+    const result = await adapter.scan();
+    const descriptor = result.tracks[0];
+
+    expect(descriptor).toBeDefined();
+    if (!descriptor) return;
+
+    const latest = await adapter.loadTrack(descriptor, {
+      direction: "backward",
+      entryLimit: 3,
+    });
+    expect(latest.entries.map((entry) => entry.sequence)).toEqual([4, 5, 6]);
+    expect(latest.summary.entryCount).toBe(7);
+    expect(latest.truncated).toBe(true);
+    expect(latest.nextSequence).toBeNull();
+
+    const previous = await adapter.loadTrack(descriptor, {
+      direction: "backward",
+      beforeSequence: 4,
+      entryLimit: 3,
+    });
+    expect(previous.entries.map((entry) => entry.sequence)).toEqual([1, 2, 3]);
+    expect(previous.truncated).toBe(true);
+  });
+
   it("normalizes Claude task notifications as linked agent results", async () => {
     const sourceRoot = await createSource();
     const sessionPath = join(sourceRoot, "example-project", "fixture-session.jsonl");

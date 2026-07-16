@@ -61,6 +61,43 @@ describe("Tracks loopback server", () => {
     expect(track.entries[0]).toMatchObject({ kind: "message", role: "user" });
   });
 
+  it("paginates the session library and supports latest-first track pages", async () => {
+    const sourceRoot = await createSource();
+    await writeFile(
+      join(sourceRoot, "example-project", "second-session.jsonl"),
+      `${JSON.stringify({
+        type: "user",
+        sessionId: "second-fixture",
+        uuid: "second-user",
+        timestamp: "2026-07-16T08:01:00.000Z",
+        cwd: "/workspace/example",
+        message: { content: "A second session." },
+      })}\n`,
+      "utf8",
+    );
+
+    const server = await startTracksServer({ sourceRoot, staticDirectory: false });
+    servers.push(server);
+
+    const firstPage = await fetch(`${server.url}/api/tracks?limit=1&offset=0`)
+      .then((response) => response.json()) as Record<string, unknown>;
+    const secondPage = await fetch(`${server.url}/api/tracks?limit=1&offset=1`)
+      .then((response) => response.json()) as Record<string, unknown>;
+    expect(firstPage).toMatchObject({ total: 2, offset: 0, nextOffset: 1 });
+    expect(secondPage).toMatchObject({ total: 2, offset: 1, nextOffset: null });
+    expect((firstPage.tracks as Array<{ id: string }>)[0]?.id)
+      .not.toBe((secondPage.tracks as Array<{ id: string }>)[0]?.id);
+
+    const trackId = (firstPage.tracks as Array<{ id: string }>)[0]?.id;
+    expect(trackId).toBeDefined();
+    if (!trackId) return;
+    const latest = TrackSchema.parse(await fetch(
+      `${server.url}/api/tracks/${encodeURIComponent(trackId)}?direction=backward&limit=1`,
+    ).then((response) => response.json()));
+    expect(latest.entries).toHaveLength(1);
+    expect(latest.summary.entryCount).toBe(1);
+  });
+
   it("rejects non-local origins", async () => {
     const sourceRoot = await createSource();
     const server = await startTracksServer({ sourceRoot, staticDirectory: false });

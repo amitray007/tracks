@@ -253,7 +253,7 @@ code, pre, kbd {
   pointer-events: none;
 }
 
-.session-list { overflow: auto; padding: 0 7px 16px; }
+.session-list { overflow: auto; overscroll-behavior: contain; padding: 0 7px 16px; }
 
 .session-group + .session-group { margin-top: 8px; }
 
@@ -1540,10 +1540,37 @@ code, pre, kbd {
 .live-indicator.live-reconnecting { background: var(--warning); }
 .muted { color: var(--text-faint); }
 
-.load-more-wrap { display: flex; justify-content: center; padding: 6px 0 0 28px; }
-.load-more:hover:not(:disabled) { color: var(--foreground); background: var(--surface-3); }
+.infinite-sentinel {
+  min-height: 46px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 6px 0 10px 28px;
+  color: var(--text-faint);
+  font-size: 9px;
+}
+
+.session-list > .infinite-sentinel { padding-left: 0; }
+.infinite-sentinel > span:last-child { max-width: 260px; text-align: center; }
 .load-more:disabled { opacity: 0.5; }
-.track-syncing { padding: 4px 0 0 38px; color: var(--text-faint); font-size: 10px; }
+.loading-spinner {
+  width: 10px;
+  height: 10px;
+  border: 1px solid #55595f;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: loading-spin 650ms linear infinite;
+}
+
+.filter-count-note { margin-top: 9px; }
+
+@keyframes loading-spin { to { transform: rotate(360deg); } }
+
+@media (hover: hover) and (pointer: fine) {
+  .load-more:hover:not(:disabled) { color: var(--foreground); background: var(--surface-3); }
+}
 
 .empty-panel {
   max-width: 440px;
@@ -1652,4 +1679,5 @@ code, pre, kbd {
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
   }
+  .loading-spinner { animation: none; border-right-color: #55595f; }
 }

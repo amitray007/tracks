@@ -1,5 +1,6 @@
 import {
   Fragment,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -13,7 +14,7 @@ import type {
   ToolCallEntry,
 } from "@tracks/core-model";
 import {
-  getCompleteTrack,
+  getTrackPage,
   getTrackLibrary,
   getViewerIdentity,
   type TrackLibraryResponse,
@@ -40,6 +41,9 @@ type EntryFilter = "messages" | "reasoning" | "tools" | "results" | "status" | "
 type SidebarGroupMode = "time" | "project";
 type TraceOrder = "oldest" | "latest";
 type TraceSearchMode = "text" | "regex";
+
+const LIBRARY_PAGE_SIZE = 60;
+const TRACE_PAGE_SIZE = 120;
 
 const ENTRY_FILTERS: ReadonlyArray<{
   id: EntryFilter;
@@ -112,6 +116,33 @@ function entrySearchText(entry: TrackEntry): string {
     case "status": return `${entry.label}\n${entry.detail ?? ""}\n${entry.tone}\n${providerKind}`;
     case "unsupported": return `${entry.summary}\n${providerKind}`;
   }
+}
+
+function mergeTrackPage(current: Track, page: Track): Track {
+  const entryIds = new Set<string>();
+  const entries = [...current.entries, ...page.entries]
+    .sort((left, right) => left.sequence - right.sequence)
+    .filter((entry) => {
+      if (entryIds.has(entry.id)) return false;
+      entryIds.add(entry.id);
+      return true;
+    });
+  const diagnosticKeys = new Set<string>();
+  const diagnostics = [...current.diagnostics, ...page.diagnostics].filter((diagnostic) => {
+    const key = `${diagnostic.code}:${diagnostic.approximateLine ?? ""}:${diagnostic.message}`;
+    if (diagnosticKeys.has(key)) return false;
+    diagnosticKeys.add(key);
+    return true;
+  });
+  return {
+    ...page,
+    summary: {
+      ...page.summary,
+      entryCount: page.summary.entryCount ?? current.summary.entryCount,
+    },
+    entries,
+    diagnostics,
+  };
 }
 
 function readModeFromLocation(): ViewMode {
@@ -284,14 +315,20 @@ function EntryNode({
   return <span className="entry-node"><Icon name={icon} size="sm" /></span>;
 }
 
-function EntryFrame({ entry, relatedToolCall, viewer }: {
+function EntryFrame({ entry, relatedToolCall, viewer, totalEntries }: {
   entry: TrackEntry;
   relatedToolCall: ToolCallEntry | undefined;
   viewer: ViewerIdentity | null;
+  totalEntries: number | null;
 }) {
   const presentation = entryPresentation(entry, relatedToolCall);
   return (
-    <article className={`entry entry-${entry.kind} tone-${presentation.tone}`} id={`entry-${entry.id}`}>
+    <article
+      className={`entry entry-${entry.kind} tone-${presentation.tone}`}
+      id={`entry-${entry.id}`}
+      aria-posinset={entry.sequence + 1}
+      aria-setsize={totalEntries ?? undefined}
+    >
       <div className="entry-rail" aria-hidden="true">
         <EntryNode entry={entry} icon={presentation.icon} viewer={viewer} />
       </div>
@@ -459,7 +496,7 @@ function TraceSearch({
         .*
       </button>
       {active ? (
-        <output id="trace-search-status" aria-live="polite">
+        <output id="trace-search-status" aria-live="polite" title="Matches in loaded entries">
           {error ? "Invalid" : `${matchCount}/${totalCount}`}
         </output>
       ) : null}
@@ -474,6 +511,42 @@ function TraceSearch({
           <Icon name="close" size="xs" />
         </button>
       ) : null}
+    </div>
+  );
+}
+
+function InfiniteLoadSentinel({
+  loading,
+  label,
+  error,
+  autoLoad = true,
+  onLoad,
+}: {
+  loading: boolean;
+  label: string;
+  error?: string | null;
+  autoLoad?: boolean;
+  onLoad(): void;
+}) {
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel || loading || !autoLoad) return;
+    const observer = new IntersectionObserver((records) => {
+      if (records.some((record) => record.isIntersecting)) onLoad();
+    }, { rootMargin: "240px 0px" });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [autoLoad, loading, onLoad]);
+
+  return (
+    <div className="infinite-sentinel" ref={sentinelRef} aria-live="polite">
+      <button className="load-more" type="button" onClick={onLoad} disabled={loading} title={error ?? undefined}>
+        {loading ? <span className="loading-spinner" aria-hidden="true" /> : <Icon name={error ? "refresh" : "disclosure"} size="xs" />}
+        {loading ? "Loading…" : error ? `Retry ${label.toLowerCase()}` : label}
+      </button>
+      {error ? <span>{error}</span> : null}
     </div>
   );
 }
@@ -587,7 +660,7 @@ function SessionOverview({ track, mode }: { track: Track; mode: ViewMode }) {
         <div>
           <Icon name="message" size="sm" />
           <span>Conversation</span>
-          <strong>{userMessages} prompts and {assistantMessages} responses in this loaded session.</strong>
+          <strong>{userMessages} prompts and {assistantMessages} responses in loaded entries.</strong>
         </div>
         <div>
           <Icon name="tool" size="sm" />
@@ -602,8 +675,8 @@ function SessionOverview({ track, mode }: { track: Track; mode: ViewMode }) {
       </div>
       <footer>
         {mode === "compact"
-          ? `${Math.max(0, mechanics).toLocaleString()} implementation events hidden from Highlights`
-          : `${track.entries.length.toLocaleString()} normalized entries available in Full trace`}
+          ? `${Math.max(0, mechanics).toLocaleString()} loaded implementation events hidden from Highlights`
+          : `${track.entries.length.toLocaleString()} entries loaded${track.truncated ? " · more available on scroll" : ""}`}
       </footer>
     </section>
   );
@@ -710,6 +783,7 @@ function DetailsRail({
               );
             })}
           </div>
+          {track.truncated ? <p className="rail-note filter-count-note">Counts update as entries load.</p> : null}
         </section>
       ) : (
         <section>
@@ -723,7 +797,12 @@ function DetailsRail({
       )}
       <section>
         <div className="rail-heading">Loaded session</div>
-        <div className="slice-count">{track.entries.length.toLocaleString()} entries</div>
+        <div className="slice-count">
+          {track.entries.length.toLocaleString()}
+          {track.summary.entryCount !== null
+            ? ` of ${track.summary.entryCount.toLocaleString()}`
+            : track.truncated ? "+" : ""} entries
+        </div>
         <p className="rail-note"><span className={`live-indicator live-${liveState}`} />{liveState === "live" ? "Watching the local session for changes." : "Reconnecting to local updates."}</p>
       </section>
       <section>
@@ -765,6 +844,7 @@ export function App() {
   const [viewer, setViewer] = useState<ViewerIdentity | null>(null);
   const [liveState, setLiveState] = useState<LiveState>("connecting");
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [mode, setMode] = useState<ViewMode>(readModeFromLocation);
   const [sidebarGroup, setSidebarGroup] = useState<SidebarGroupMode>(readSidebarGroupFromLocation);
   const [traceOrder, setTraceOrder] = useState<TraceOrder>(readTraceOrderFromLocation);
@@ -775,34 +855,106 @@ export function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [trackError, setTrackError] = useState<string | null>(null);
+  const [trackMoreError, setTrackMoreError] = useState<string | null>(null);
   const [loadingTrack, setLoadingTrack] = useState(false);
+  const [loadingTrackMore, setLoadingTrackMore] = useState(false);
+  const [loadingLibraryMore, setLoadingLibraryMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const selectedIdRef = useRef<string | null>(selectedId);
+  const libraryRef = useRef<TrackLibraryResponse | null>(library);
+  const libraryQueryRef = useRef(debouncedQuery);
+  const trackRef = useRef<Track | null>(track);
+  const traceOrderRef = useRef<TraceOrder>(traceOrder);
+  const libraryRequestRef = useRef(0);
+  const loadingTrackMoreRef = useRef(false);
+  const loadingLibraryMoreRef = useRef(false);
   const liveRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  async function loadLibrary(refresh = false) {
-    if (refresh) setRefreshing(true);
+  const loadLibrary = useCallback(async ({
+    refresh = false,
+    append = false,
+  }: { refresh?: boolean; append?: boolean } = {}) => {
+    if (append && loadingLibraryMoreRef.current) return;
+    const current = libraryRef.current;
+    const offset = append ? current?.nextOffset : 0;
+    if (append && offset === null) return;
+    const requestId = ++libraryRequestRef.current;
+    if (append) {
+      loadingLibraryMoreRef.current = true;
+      setLoadingLibraryMore(true);
+    } else if (refresh) {
+      setRefreshing(true);
+    }
     setLibraryError(null);
     try {
-      const nextLibrary = await getTrackLibrary(refresh);
-      setLibrary(nextLibrary);
-      setSelectedId((current) => current ?? nextLibrary.tracks[0]?.id ?? null);
+      const nextLibrary = await getTrackLibrary({
+        refresh,
+        query: debouncedQuery,
+        offset: offset ?? 0,
+        limit: LIBRARY_PAGE_SIZE,
+      });
+      if (requestId !== libraryRequestRef.current) return;
+      setLibrary((loaded) => {
+        if (!append || !loaded) return nextLibrary;
+        const seen = new Set(loaded.tracks.map((item) => item.id));
+        return {
+          ...nextLibrary,
+          offset: 0,
+          tracks: [
+            ...loaded.tracks,
+            ...nextLibrary.tracks.filter((item) => !seen.has(item.id)),
+          ],
+        };
+      });
+      setSelectedId((selected) => selected ?? nextLibrary.tracks[0]?.id ?? null);
     } catch (error) {
-      setLibraryError(error instanceof Error ? error.message : "Could not load sessions.");
+      if (requestId === libraryRequestRef.current) {
+        setLibraryError(error instanceof Error ? error.message : "Could not load sessions.");
+      }
     } finally {
-      setRefreshing(false);
+      if (append) {
+        loadingLibraryMoreRef.current = false;
+        setLoadingLibraryMore(false);
+      } else if (refresh) {
+        setRefreshing(false);
+      }
     }
-  }
+  }, [debouncedQuery]);
 
   useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(query.trim()), 180);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  useEffect(() => {
+    setLibrary(null);
     void loadLibrary();
+  }, [loadLibrary]);
+
+  useEffect(() => {
     void getViewerIdentity().then(setViewer).catch(() => setViewer(null));
   }, []);
 
   useEffect(() => {
     selectedIdRef.current = selectedId;
   }, [selectedId]);
+
+  useEffect(() => {
+    libraryRef.current = library;
+  }, [library]);
+
+  useEffect(() => {
+    libraryQueryRef.current = debouncedQuery;
+  }, [debouncedQuery]);
+
+  useEffect(() => {
+    trackRef.current = track;
+  }, [track]);
+
+  useEffect(() => {
+    traceOrderRef.current = traceOrder;
+  }, [traceOrder]);
 
   useEffect(() => {
     setTraceQuery("");
@@ -818,13 +970,45 @@ export function App() {
       liveRefreshTimer.current = setTimeout(() => {
         liveRefreshTimer.current = null;
         const trackId = selectedIdRef.current;
+        const currentTrack = trackRef.current;
+        const currentOrder = traceOrderRef.current;
+        const libraryQuery = libraryQueryRef.current;
+        let trackUpdate: Promise<Track | null> = Promise.resolve(null);
+        if (trackId && currentTrack?.summary.id === trackId) {
+          if (currentOrder === "latest") {
+            trackUpdate = getTrackPage(trackId, {
+              direction: "backward",
+              limit: Math.min(Math.max(currentTrack.entries.length, TRACE_PAGE_SIZE), 2_000),
+            });
+          } else if (!currentTrack.truncated) {
+            const startSequence = (currentTrack.entries.at(-1)?.sequence ?? -1) + 1;
+            trackUpdate = getTrackPage(trackId, { startSequence, limit: TRACE_PAGE_SIZE });
+          }
+        }
         void Promise.all([
-          getTrackLibrary(),
-          trackId ? getCompleteTrack(trackId) : Promise.resolve(null),
+          getTrackLibrary({ query: libraryQuery, limit: LIBRARY_PAGE_SIZE }),
+          trackUpdate,
         ]).then(([nextLibrary, nextTrack]) => {
           if (closed) return;
-          setLibrary(nextLibrary);
-          if (nextTrack && selectedIdRef.current === trackId) setTrack(nextTrack);
+          setLibrary((loaded) => {
+            if (!loaded) return nextLibrary;
+            const headIds = new Set(nextLibrary.tracks.map((item) => item.id));
+            const tracks = [
+              ...nextLibrary.tracks,
+              ...loaded.tracks.filter((item) => !headIds.has(item.id)),
+            ].slice(0, Math.max(loaded.tracks.length, nextLibrary.tracks.length));
+            return {
+              ...nextLibrary,
+              tracks,
+              nextOffset: tracks.length < nextLibrary.total ? tracks.length : null,
+            };
+          });
+          if (nextTrack && selectedIdRef.current === trackId) {
+            setTrack((loaded) => {
+              if (!loaded || loaded.summary.id !== trackId) return nextTrack;
+              return currentOrder === "latest" ? nextTrack : mergeTrackPage(loaded, nextTrack);
+            });
+          }
         }).catch(() => {
           if (!closed) setLiveState("reconnecting");
         });
@@ -892,11 +1076,11 @@ export function App() {
     setLoadingTrack(true);
     setTrackError(null);
     setTrack(null);
-    void getCompleteTrack(selectedId, {
+    setTrackMoreError(null);
+    void getTrackPage(selectedId, {
+      direction: traceOrder === "latest" ? "backward" : "forward",
+      limit: TRACE_PAGE_SIZE,
       signal: controller.signal,
-      onProgress: (nextTrack) => {
-        if (!controller.signal.aborted) setTrack(nextTrack);
-      },
     })
       .then((nextTrack) => {
         if (!controller.signal.aborted) setTrack(nextTrack);
@@ -911,17 +1095,39 @@ export function App() {
       });
 
     return () => controller.abort();
-  }, [selectedId]);
+  }, [selectedId, traceOrder]);
 
-  const visibleTracks = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase();
-    if (!library || !normalized) return library?.tracks ?? [];
-    return library.tracks.filter((item) =>
-      `${item.title} ${item.projectLabel} ${item.providerLabel}`
-        .toLocaleLowerCase()
-        .includes(normalized),
-    );
-  }, [library, query]);
+  const loadMoreTrack = useCallback(() => {
+    const current = trackRef.current;
+    const trackId = selectedIdRef.current;
+    if (!current || !trackId || !current.truncated || loadingTrackMoreRef.current) return;
+    loadingTrackMoreRef.current = true;
+    setLoadingTrackMore(true);
+    setTrackMoreError(null);
+    const request = traceOrderRef.current === "latest"
+      ? getTrackPage(trackId, {
+          direction: "backward",
+          beforeSequence: current.entries[0]?.sequence ?? 0,
+          limit: TRACE_PAGE_SIZE,
+        })
+      : getTrackPage(trackId, {
+          startSequence: current.nextSequence ?? current.entries.length,
+          limit: TRACE_PAGE_SIZE,
+        });
+    void request.then((page) => {
+      if (selectedIdRef.current !== trackId) return;
+      setTrack((loaded) => loaded?.summary.id === trackId ? mergeTrackPage(loaded, page) : loaded);
+    }).catch((error: unknown) => {
+      if (selectedIdRef.current === trackId) {
+        setTrackMoreError(error instanceof Error ? error.message : "Could not load more entries.");
+      }
+    }).finally(() => {
+      loadingTrackMoreRef.current = false;
+      setLoadingTrackMore(false);
+    });
+  }, []);
+
+  const visibleTracks = library?.tracks ?? [];
 
   const visibleTrackGroups = useMemo(() => {
     if (sidebarGroup === "project") {
@@ -1074,7 +1280,8 @@ export function App() {
     window.history.replaceState(null, "", url);
   }
 
-  const selectedSummary = library?.tracks.find((item) => item.id === selectedId) ?? null;
+  const selectedSummary = library?.tracks.find((item) => item.id === selectedId)
+    ?? (track?.summary.id === selectedId ? track.summary : null);
 
   return (
     <div className="app-shell" data-sidebar-open={sidebarOpen}>
@@ -1105,7 +1312,7 @@ export function App() {
           <kbd>/</kbd>
         </div>
         <div className="library-section-heading">
-          <span>{query.trim() ? `${visibleTracks.length.toLocaleString()} results` : "Sessions"}</span>
+          <span>{debouncedQuery ? `${(library?.total ?? 0).toLocaleString()} results` : "Sessions"}</span>
           <div className="library-heading-actions">
             <label className="sidebar-group-control">
               <span className="sr-only">Group sessions by</span>
@@ -1122,12 +1329,12 @@ export function App() {
             <IconButton
               label="Refresh Claude sessions"
               icon="refresh"
-              onClick={() => void loadLibrary(true)}
+              onClick={() => void loadLibrary({ refresh: true })}
               disabled={refreshing}
             />
           </div>
         </div>
-        <div className="session-list" aria-busy={!library && !libraryError}>
+        <div className="session-list" aria-busy={(!library && !libraryError) || loadingLibraryMore}>
           {!library && !libraryError ? Array.from({ length: 7 }, (_, index) => (
             <div className="session-skeleton" key={index} />
           )) : null}
@@ -1151,6 +1358,14 @@ export function App() {
               ))}
             </section>
           ))}
+          {library && library.nextOffset !== null ? (
+            <InfiniteLoadSentinel
+              loading={loadingLibraryMore}
+              label="Load more sessions"
+              error={libraryError}
+              onLoad={() => void loadLibrary({ append: true })}
+            />
+          ) : null}
         </div>
         <footer className="library-footer">
           <span><span className={`health-dot live-${liveState}`} />{liveState === "live" ? "Live updates" : liveState === "reconnecting" ? "Reconnecting" : "Connecting"}</span>
@@ -1230,7 +1445,14 @@ export function App() {
                     <span>{track.diagnostics.length} source {track.diagnostics.length === 1 ? "record needs" : "records need"} inspection. Valid surrounding entries are still shown.</span>
                   </div>
                 ) : null}
-                <div className="trace" data-mode={mode} id="session-trace">
+                <div
+                  className="trace"
+                  data-mode={mode}
+                  id="session-trace"
+                  role="feed"
+                  aria-label={mode === "compact" ? "Session highlights" : "Full session trace"}
+                  aria-busy={loadingTrackMore}
+                >
                   {orderedVisibleEntries.map((entry) => (
                     <EntryFrame
                       entry={entry}
@@ -1239,6 +1461,7 @@ export function App() {
                         ? toolCallsById.get(entry.toolUseId)
                         : undefined}
                       viewer={viewer}
+                      totalEntries={track.summary.entryCount}
                     />
                   ))}
                   {traceSearchResult.entries.length === 0 ? (
@@ -1247,14 +1470,16 @@ export function App() {
                       <strong>{traceSearchResult.error
                         ? "Invalid regular expression"
                         : traceQuery
-                          ? "No entries match this search"
+                          ? track.truncated
+                            ? "No matches in loaded entries yet"
+                            : "No entries match this search"
                           : mode === "compact"
                             ? "No narrative entries in this slice"
                             : "No evidence matches"}</strong>
                       <p>{traceSearchResult.error
                         ? "Adjust the pattern or switch back to plain text."
                         : traceQuery
-                          ? `No ${traceSearchMode === "regex" ? "regex" : "text"} matches in the current ${mode === "compact" ? "Highlights" : "Full trace"} filters.`
+                          ? `No ${traceSearchMode === "regex" ? "regex" : "text"} matches in the ${track.truncated ? "loaded portion of the " : "current "}${mode === "compact" ? "Highlights" : "Full trace"}.`
                           : mode === "compact"
                             ? "Open Full view to inspect provider mechanics."
                             : "Enable one or more evidence filters to continue."}</p>
@@ -1275,8 +1500,16 @@ export function App() {
                       </button>
                     </div>
                   ) : null}
+                  {track.truncated && !traceSearchResult.error ? (
+                    <InfiniteLoadSentinel
+                      loading={loadingTrackMore}
+                      label={traceQuery ? "Search more entries" : "Load more entries"}
+                      error={trackMoreError}
+                      autoLoad={!traceQuery || orderedVisibleEntries.length > 0}
+                      onLoad={loadMoreTrack}
+                    />
+                  ) : null}
                 </div>
-                {loadingTrack && track.truncated ? <div className="track-syncing">Loading the complete trace…</div> : null}
                 <TraceJumpNavigation key={track.summary.id} />
               </>
             ) : null}

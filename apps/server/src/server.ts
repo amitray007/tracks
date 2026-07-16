@@ -261,6 +261,7 @@ export async function startTracksServer(
         const library = await catalog.library({
           ...(query ? { query } : {}),
           limit: readInteger(requestUrl.searchParams.get("limit"), 100),
+          offset: readInteger(requestUrl.searchParams.get("offset"), 0),
           refresh: requestUrl.searchParams.get("refresh") === "1",
         });
         sendJson(response, 200, library);
@@ -273,6 +274,10 @@ export async function startTracksServer(
           trackId,
           readInteger(requestUrl.searchParams.get("limit"), 500),
           readInteger(requestUrl.searchParams.get("start"), 0),
+          requestUrl.searchParams.get("direction") === "backward" ? "backward" : "forward",
+          requestUrl.searchParams.has("before")
+            ? readInteger(requestUrl.searchParams.get("before"), 0)
+            : undefined,
         );
         if (!track) {
           sendJson(response, 404, { error: "Track not found." });

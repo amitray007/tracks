@@ -55,7 +55,7 @@ Priority levels:
 | ID | Priority | Requirement |
 | --- | --- | --- |
 | LIB-01 | P0 | Build a local index of sessions and searchable text. |
-| LIB-02 | P0 | List sessions by last activity with provider, project, model, status, and key counts. |
+| LIB-02 | P0 | List sessions by last activity with provider, project, model, status, and key counts through bounded server-backed pages rather than loading the complete library into the browser. |
 | LIB-03 | P0 | Search title, project, path, messages, tool names, commands, and changed filenames. |
 | LIB-04 | P0 | Filter by provider, project, date range, and completion/error status. |
 | LIB-05 | P0 | Preserve useful library results while background indexing continues. |
@@ -70,13 +70,13 @@ Priority levels:
 | TRK-01 | P0 | Render canonical entries in chronological provider order by default, with a stable URL-addressable latest-first presentation that does not mutate canonical sequence or deep links. |
 | TRK-02 | P0 | Support user, assistant, reasoning, tool call/result, command, file change, sub-agent, status, error, and unsupported entries. |
 | TRK-03 | P0 | Filter visible entries by canonical kind without reparsing the source. |
-| TRK-04 | P0 | Filter the current Compact or Full track projection with case-insensitive text or regular expressions, including live match counts, invalid-pattern feedback, and an explicit clear action. |
+| TRK-04 | P0 | Filter the loaded Compact or Full track projection with case-insensitive text or regular expressions, including live match counts, invalid-pattern feedback, an explicit clear action, and a way to continue searching later pages. |
 | TRK-05 | P0 | Expand/collapse tool requests, results, reasoning, raw data, and diffs. |
 | TRK-06 | P0 | Distinguish provider truncation, Tracks collapsing, unavailable data, redaction, and parse failure. |
 | TRK-07 | P0 | Preserve raw provider payload access for every entry when safe and available. |
 | TRK-08 | P1 | Provide an outline of messages, tools, changed files, errors, and sub-agents. |
 | TRK-09 | P1 | Restore view mode, filters, selected entry, and scroll anchor from the URL where practical. |
-| TRK-10 | P0 | Window or virtualize large sessions while maintaining selection, focus, anchors, and an accessible segmented fallback when required. |
+| TRK-10 | P0 | Load large sessions through bounded forward and backward pages with automatic intersection loading plus an explicit segmented fallback, while maintaining order, selection, focus, and anchors. |
 | TRK-11 | P0 | Render every canonical entry from its documented minimum shape when optional provider data is unavailable. |
 | TRK-12 | P0 | Distinguish loading, absent, unsupported, partial, redacted, stale, parse-failed, and policy-hidden data where the distinction affects user understanding. |
 | TRK-13 | P0 | Provide compact and full URL-addressable views over the same canonical evidence and preserve entry anchors when switching. |

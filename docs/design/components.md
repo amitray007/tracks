@@ -172,7 +172,11 @@ Filters operate on canonical event kinds, not provider names. They support:
 
 Filtering should not destroy scroll position. When the selected entry is filtered out, move selection to the nearest visible entry and announce the change.
 
-The track search field lives in the sticky workspace header rather than the wide-only details rail. This keeps it reachable while reading long traces and at breakpoints where the rail is hidden. Search terms are ephemeral local UI state and are not added to copied session URLs.
+The track search field lives in the sticky workspace header rather than the wide-only details rail. This keeps it reachable while reading long tracks and at breakpoints where the rail is hidden. Search terms are ephemeral local UI state and are not added to copied session URLs. Match counts explicitly describe the loaded projection; when later pages remain, the track provides a “Search more entries” continuation instead of silently materializing the complete source in browser memory.
+
+### InfiniteLoadSentinel
+
+Session libraries load in 60-item server-backed pages and tracks load in 120-entry provider-order pages. A near-viewport intersection automatically requests the next page, while the same sentinel remains a real button for keyboard users, assistive technology, failed requests, and environments without intersection observation. Oldest-first tracks page forward; latest-first tracks page backward from the true provider tail and reverse only the presentation. Live refreshes reconcile the loaded window rather than fetching the entire session.
 
 ### TrackInspector
 

@@ -315,12 +315,27 @@ export async function parseClaudeTrack(
   const entries: TrackEntry[] = [];
   const diagnostics: TrackDiagnostic[] = [];
   const startSequence = options.startSequence ?? 0;
+  const direction = options.direction ?? "forward";
+  const beforeSequence = options.beforeSequence ?? Number.POSITIVE_INFINITY;
   let sequence = 0;
   let lineNumber = 0;
   let truncated = false;
 
   const input = createReadStream(reference.sourcePath, { encoding: "utf8" });
   const lines = createInterface({ input, crlfDelay: Number.POSITIVE_INFINITY });
+
+  const collectEntry = (entry: TrackEntry) => {
+    if (direction === "forward") {
+      if (entry.sequence >= startSequence && entries.length < options.entryLimit) {
+        entries.push(entry);
+      }
+      return;
+    }
+
+    if (entry.sequence >= beforeSequence) return;
+    entries.push(entry);
+    if (entries.length > options.entryLimit) entries.shift();
+  };
 
   for await (const line of lines) {
     lineNumber += 1;
@@ -341,59 +356,67 @@ export async function parseClaudeTrack(
         });
       }
 
-      if (sequence >= startSequence && entries.length < options.entryLimit) {
-        entries.push({
-          id: `malformed:${stableId(lineNumber)}`,
-          sequence,
-          timestamp: null,
-          providerRecordKind: null,
-          kind: "unsupported",
-          summary: "Malformed Claude Code record",
-          rawAvailable: true,
-        });
-      }
+      collectEntry({
+        id: `malformed:${stableId(lineNumber)}`,
+        sequence,
+        timestamp: null,
+        providerRecordKind: null,
+        kind: "unsupported",
+        summary: "Malformed Claude Code record",
+        rawAvailable: true,
+      });
       sequence += 1;
     }
 
     if (isRecord(parsed)) {
       const recordEntries = entriesFromRecord(parsed, lineNumber, sequence);
       for (const entry of recordEntries) {
-        if (entry.sequence >= startSequence && entries.length < options.entryLimit) {
-          entries.push(entry);
-        }
+        collectEntry(entry);
       }
       sequence += recordEntries.length;
     } else if (parsed !== undefined) {
-      if (sequence >= startSequence && entries.length < options.entryLimit) {
-        entries.push({
-          id: `invalid-shape:${stableId(lineNumber)}`,
-          sequence,
-          timestamp: null,
-          providerRecordKind: null,
-          kind: "unsupported",
-          summary: "Claude record is not a JSON object",
-          rawAvailable: true,
-        });
-      }
+      collectEntry({
+        id: `invalid-shape:${stableId(lineNumber)}`,
+        sequence,
+        timestamp: null,
+        providerRecordKind: null,
+        kind: "unsupported",
+        summary: "Claude record is not a JSON object",
+        rawAvailable: true,
+      });
       sequence += 1;
     }
 
-    if (entries.length >= options.entryLimit) {
+    if (direction === "forward" && entries.length >= options.entryLimit) {
       truncated = true;
+      lines.close();
+      input.destroy();
+      break;
+    }
+
+    if (direction === "backward" && sequence >= beforeSequence) {
       lines.close();
       input.destroy();
       break;
     }
   }
 
+  if (direction === "backward") {
+    truncated = (entries[0]?.sequence ?? 0) > 0;
+  }
+
   return {
     summary: {
       ...summary,
-      entryCount: truncated ? null : sequence,
+      entryCount: direction === "backward" && Number.isFinite(beforeSequence)
+        ? summary.entryCount
+        : truncated && direction === "forward"
+          ? null
+          : sequence,
     },
     entries,
     diagnostics,
     truncated,
-    nextSequence: truncated ? startSequence + entries.length : null,
+    nextSequence: direction === "forward" && truncated ? startSequence + entries.length : null,
   };
 }
