@@ -1471,12 +1471,12 @@ code, pre, kbd {
 .diff-view {
   max-height: 430px;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(50%, max-content));
   overflow: auto;
   background: #0d0e0f;
 }
-.diff-view[data-single-pane="true"] { grid-template-columns: minmax(0, 1fr); }
-.diff-pane { min-width: 0; padding: 5px 0; overflow: hidden; }
+.diff-view[data-single-pane="true"] { grid-template-columns: minmax(100%, max-content); }
+.diff-pane { min-width: 0; padding: 5px 0; }
 .diff-pane + .diff-pane { border-left: 1px solid #292b2e; }
 .diff-line {
   min-height: 20px;
@@ -2126,7 +2126,7 @@ code, pre, kbd {
 }
 
 @media (max-width: 700px) {
-  .diff-view:not([data-single-pane="true"]) { grid-template-columns: minmax(0, 1fr); }
+  .diff-view:not([data-single-pane="true"]) { grid-template-columns: minmax(100%, max-content); }
   .diff-pane + .diff-pane { border-top: 1px solid #292b2e; border-left: 0; }
 }
 
