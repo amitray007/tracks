@@ -1280,6 +1280,46 @@ code, pre, kbd {
   border-radius: 8px;
 }
 
+.trace-jump-navigation {
+  position: fixed;
+  right: 18px;
+  bottom: calc(18px + env(safe-area-inset-bottom));
+  z-index: 14;
+  display: grid;
+  grid-auto-flow: column;
+  gap: 2px;
+  padding: 3px;
+  background: rgba(20, 21, 22, 0.92);
+  border: 1px solid #303236;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(14px) saturate(120%);
+}
+
+.trace-jump-navigation button {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: #a7aaae;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: color 120ms ease, background-color 120ms ease, transform 120ms var(--ease-out), opacity 120ms ease;
+}
+
+.trace-jump-navigation button:active:not(:disabled) { transform: scale(0.96); }
+.trace-jump-navigation button:disabled { opacity: 0.28; cursor: default; }
+
+@media (hover: hover) and (pointer: fine) {
+  .trace-jump-navigation button:hover:not(:disabled) {
+    color: #ececed;
+    background: rgba(255, 255, 255, 0.055);
+  }
+}
+
 .trace-empty strong { display: block; margin-top: 12px; color: var(--foreground); font-size: 12px; }
 .trace-empty p { margin: 5px 0 14px; font-size: 11px; }
 .trace-empty button {
@@ -1468,6 +1508,10 @@ code, pre, kbd {
   .track-column { padding-top: 34px; }
   .breadcrumb > span:first-child { display: none; }
   .breadcrumb > span[aria-hidden="true"] { display: none; }
+  .trace-jump-navigation {
+    right: 14px;
+    bottom: calc(14px + env(safe-area-inset-bottom));
+  }
 }
 
 @media (hover: none) {

@@ -380,6 +380,76 @@ function ViewToggle({ mode, onChange }: { mode: ViewMode; onChange(mode: ViewMod
   );
 }
 
+function TraceJumpNavigation() {
+  const [scrollState, setScrollState] = useState({
+    scrollable: false,
+    atTop: true,
+    atBottom: true,
+  });
+
+  useEffect(() => {
+    let animationFrame = 0;
+    const update = () => {
+      cancelAnimationFrame(animationFrame);
+      animationFrame = requestAnimationFrame(() => {
+        const root = document.documentElement;
+        const next = {
+          scrollable: root.scrollHeight > window.innerHeight + 16,
+          atTop: window.scrollY <= 8,
+          atBottom: window.scrollY + window.innerHeight >= root.scrollHeight - 8,
+        };
+        setScrollState((current) =>
+          current.scrollable === next.scrollable
+          && current.atTop === next.atTop
+          && current.atBottom === next.atBottom
+            ? current
+            : next,
+        );
+      });
+    };
+
+    const resizeObserver = new ResizeObserver(update);
+    resizeObserver.observe(document.body);
+    window.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    update();
+
+    return () => {
+      cancelAnimationFrame(animationFrame);
+      resizeObserver.disconnect();
+      window.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
+  if (!scrollState.scrollable) return null;
+
+  return (
+    <nav className="trace-jump-navigation" aria-label="Trace navigation">
+      <button
+        type="button"
+        aria-label="Jump to top of trace"
+        title="Jump to top"
+        aria-controls="session-trace"
+        disabled={scrollState.atTop}
+        onClick={() => window.scrollTo({ top: 0 })}
+      >
+        <Icon name="up" size="sm" />
+      </button>
+      <button
+        type="button"
+        aria-label="Jump to bottom of trace"
+        title="Jump to bottom"
+        aria-controls="session-trace"
+        disabled={scrollState.atBottom}
+        onClick={() => window.scrollTo({ top: document.documentElement.scrollHeight })}
+      >
+        <Icon name="down" size="sm" />
+      </button>
+    </nav>
+  );
+}
+
 function EmptyPanel({ icon, title, children }: { icon: IconName; title: string; children: ReactNode }) {
   return (
     <div className="empty-panel">
@@ -1012,7 +1082,7 @@ export function App() {
                     <span>{track.diagnostics.length} source {track.diagnostics.length === 1 ? "record needs" : "records need"} inspection. Valid surrounding entries are still shown.</span>
                   </div>
                 ) : null}
-                <div className="trace" data-mode={mode}>
+                <div className="trace" data-mode={mode} id="session-trace">
                   {orderedVisibleEntries.map((entry) => (
                     <EntryFrame
                       entry={entry}
@@ -1045,6 +1115,7 @@ export function App() {
                   ) : null}
                 </div>
                 {loadingTrack && track.truncated ? <div className="track-syncing">Loading the complete trace…</div> : null}
+                <TraceJumpNavigation key={track.summary.id} />
               </>
             ) : null}
           </section>

@@ -117,6 +117,15 @@ The primary track modes are **Compact** and **Full**. **Raw/Inspect** is a secon
 - Counts make hidden/grouped mechanics legible in Compact view.
 - The control uses a stable tab/segmented treatment and does not move when session actions change.
 
+### TraceJumpNavigation
+
+Long tracks expose a compact floating top/bottom navigator in both Compact and Full views.
+
+- It appears only when the document is scrollable and stays outside the primary reading flow.
+- The button for the reached edge is disabled; both buttons remain keyboard- and touch-accessible.
+- Navigation is immediate rather than smoothly animating through a potentially very long trace.
+- It moves the viewport only and never changes canonical order, active filters, or trace-order preference.
+
 ### CompactTrackView
 
 Compact view is a deterministic narrative projection:

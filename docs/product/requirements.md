@@ -81,6 +81,7 @@ Priority levels:
 | TRK-12 | P0 | Distinguish loading, absent, unsupported, partial, redacted, stale, parse-failed, and policy-hidden data where the distinction affects user understanding. |
 | TRK-13 | P0 | Provide compact and full URL-addressable views over the same canonical evidence and preserve entry anchors when switching. |
 | TRK-14 | P0 | Make compact view deterministic and reversible: grouped/collapsed mechanics always link to their full entries and are not silently discarded. |
+| TRK-15 | P1 | Provide an always-available, accessible way to jump to the top or bottom of long Compact and Full traces without changing trace order. |
 
 ### Specialized rendering
 
