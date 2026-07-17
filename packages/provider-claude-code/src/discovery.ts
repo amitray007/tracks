@@ -14,21 +14,42 @@ import {
 } from "./utils.js";
 
 const HEAD_BYTES = 256 * 1024;
+const SUBAGENT_HEAD_BYTES = 64 * 1024;
 const RECENT_WINDOW_MS = 90 * 1000;
 
 export interface ClaudeTrackReference {
   sourcePath: string;
   sourceSize: number;
   sourceMtimeMs: number;
+  sourceClass: "session" | "subagent";
+  parentTrackId?: string;
+  providerAgentId?: string;
+  childTracksByAgentId: Record<string, ClaudeChildTrackLink>;
 }
 
-interface HeadEvidence {
+export interface ClaudeChildTrackLink {
+  trackId: string;
+  title: string;
+}
+
+export interface HeadEvidence {
   sessionId: string | null;
+  agentId: string | null;
+  attributionAgent: string | null;
+  isSidechain: boolean | null;
   cwd: string | null;
   title: string | null;
   startedAt: string | null;
   capabilities: TrackCapabilities;
 }
+
+export interface ClaudeEvidenceCacheEntry {
+  sourceSize: number;
+  sourceMtimeMs: number;
+  evidence: HeadEvidence;
+}
+
+export type ClaudeEvidenceCache = Map<string, ClaudeEvidenceCacheEntry>;
 
 const EMPTY_CAPABILITIES: TrackCapabilities = {
   reasoning: false,
@@ -80,8 +101,23 @@ function titleFromText(text: string): string | null {
   return title || null;
 }
 
+function titleFromAgentAttribution(attributionAgent: string): string {
+  const agentName = attributionAgent.split(":").at(-1) ?? attributionAgent;
+  const words = agentName
+    .replace(/^ce-/, "")
+    .split(/[-_\s]+/)
+    .filter(Boolean);
+  if (words.length === 0) return "Sub-agent";
+  return words.map((word) => `${word[0]?.toUpperCase() ?? ""}${word.slice(1)}`).join(" ");
+}
+
 function observeRecord(evidence: HeadEvidence, record: UnknownRecord): void {
   evidence.sessionId ??= asString(record.sessionId);
+  evidence.agentId ??= asString(record.agentId);
+  evidence.attributionAgent ??= asString(record.attributionAgent);
+  if (evidence.isSidechain === null && typeof record.isSidechain === "boolean") {
+    evidence.isSidechain = record.isSidechain;
+  }
   evidence.cwd ??= asString(record.cwd);
   evidence.startedAt ??= toIsoDate(record.timestamp);
 
@@ -122,9 +158,12 @@ function observeRecord(evidence: HeadEvidence, record: UnknownRecord): void {
   }
 }
 
-async function readHeadEvidence(sourcePath: string): Promise<HeadEvidence> {
+async function readHeadEvidence(sourcePath: string, maximumBytes = HEAD_BYTES): Promise<HeadEvidence> {
   const evidence: HeadEvidence = {
     sessionId: null,
+    agentId: null,
+    attributionAgent: null,
+    isSidechain: null,
     cwd: null,
     title: null,
     startedAt: null,
@@ -133,12 +172,12 @@ async function readHeadEvidence(sourcePath: string): Promise<HeadEvidence> {
 
   const handle = await open(sourcePath, "r");
   try {
-    const buffer = Buffer.alloc(HEAD_BYTES);
-    const { bytesRead } = await handle.read(buffer, 0, HEAD_BYTES, 0);
+    const buffer = Buffer.alloc(maximumBytes);
+    const { bytesRead } = await handle.read(buffer, 0, maximumBytes, 0);
     const text = buffer.subarray(0, bytesRead).toString("utf8");
     const lines = text.split("\n");
 
-    if (bytesRead === HEAD_BYTES) {
+    if (bytesRead === maximumBytes) {
       lines.pop();
     }
 
@@ -163,16 +202,103 @@ async function readHeadEvidence(sourcePath: string): Promise<HeadEvidence> {
   return evidence;
 }
 
+async function readCachedHeadEvidence(
+  sourcePath: string,
+  sourceSize: number,
+  sourceMtimeMs: number,
+  cache: ClaudeEvidenceCache,
+  maximumBytes = HEAD_BYTES,
+): Promise<HeadEvidence> {
+  const cached = cache.get(sourcePath);
+  if (cached?.sourceSize === sourceSize && cached.sourceMtimeMs === sourceMtimeMs) {
+    return cached.evidence;
+  }
+  let evidence = await readHeadEvidence(sourcePath, maximumBytes);
+  if (
+    maximumBytes < HEAD_BYTES
+    && sourceSize > maximumBytes
+    && (!evidence.sessionId || !evidence.agentId || evidence.isSidechain === null)
+  ) {
+    evidence = await readHeadEvidence(sourcePath, HEAD_BYTES);
+  }
+  cache.set(sourcePath, { sourceSize, sourceMtimeMs, evidence });
+  return evidence;
+}
+
 function fallbackProjectLabel(directoryName: string): string {
   const segments = directoryName.split("-").filter(Boolean);
   return segments.at(-1) ?? directoryName;
 }
 
+interface DiscoveredSubagent {
+  agentId: string;
+  evidence: HeadEvidence;
+  sourcePath: string;
+  sourceSize: number;
+  sourceMtimeMs: number;
+}
+
+async function discoverSubagents(
+  projectDirectory: string,
+  sessionFileName: string,
+  providerSessionId: string | null,
+  cache: ClaudeEvidenceCache,
+  seenPaths: Set<string>,
+): Promise<DiscoveredSubagent[]> {
+  if (!providerSessionId) return [];
+  const sessionDirectoryName = sessionFileName.slice(0, -".jsonl".length);
+  const subagentDirectory = join(projectDirectory, sessionDirectoryName, "subagents");
+  let entries;
+  try {
+    entries = await readdir(subagentDirectory, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const children: DiscoveredSubagent[] = [];
+  for (const entry of entries) {
+    const match = entry.isFile() ? entry.name.match(/^agent-([A-Za-z0-9_-]+)\.jsonl$/) : null;
+    const pathAgentId = match?.[1];
+    if (!pathAgentId) continue;
+    const sourcePath = join(subagentDirectory, entry.name);
+    try {
+      const sourceStat = await stat(sourcePath);
+      seenPaths.add(sourcePath);
+      const evidence = await readCachedHeadEvidence(
+        sourcePath,
+        sourceStat.size,
+        sourceStat.mtimeMs,
+        cache,
+        SUBAGENT_HEAD_BYTES,
+      );
+      if (
+        evidence.sessionId !== providerSessionId
+        || evidence.agentId !== pathAgentId
+        || evidence.isSidechain !== true
+      ) {
+        continue;
+      }
+      children.push({
+        agentId: pathAgentId,
+        evidence,
+        sourcePath,
+        sourceSize: sourceStat.size,
+        sourceMtimeMs: sourceStat.mtimeMs,
+      });
+    } catch {
+      // A broken or actively replaced child file must not hide its parent session.
+    }
+  }
+  return children;
+}
+
 export async function discoverClaudeTracks(
   sourceRoot: string,
+  cache: ClaudeEvidenceCache = new Map(),
 ): Promise<Array<ProviderTrackDescriptor<ClaudeTrackReference>>> {
   const projectEntries = await readdir(sourceRoot, { withFileTypes: true });
   const tracks: Array<ProviderTrackDescriptor<ClaudeTrackReference>> = [];
+  const seenPaths = new Set<string>();
 
   for (const projectEntry of projectEntries) {
     if (!projectEntry.isDirectory()) {
@@ -202,7 +328,13 @@ export async function discoverClaudeTracks(
 
       let evidence: HeadEvidence;
       try {
-        evidence = await readHeadEvidence(sourcePath);
+        seenPaths.add(sourcePath);
+        evidence = await readCachedHeadEvidence(
+          sourcePath,
+          sourceStat.size,
+          sourceStat.mtimeMs,
+          cache,
+        );
       } catch {
         continue;
       }
@@ -215,6 +347,22 @@ export async function discoverClaudeTracks(
       const projectLabel = cwdLabel || fallbackProjectLabel(projectEntry.name);
       const updatedAt = sourceStat.mtime.toISOString();
       const isRecent = Date.now() - sourceStat.mtimeMs <= RECENT_WINDOW_MS;
+      const subagents = await discoverSubagents(
+        projectDirectory,
+        sessionEntry.name,
+        evidence.sessionId,
+        cache,
+        seenPaths,
+      );
+      const childTracksByAgentId = Object.fromEntries(subagents.map((child) => {
+        const childTrackId = `${trackId}:agent:${child.agentId}`;
+        return [child.agentId, {
+          trackId: childTrackId,
+          title: child.evidence.attributionAgent
+            ? titleFromAgentAttribution(child.evidence.attributionAgent)
+            : child.evidence.title || `Sub-agent ${child.agentId.slice(0, 8)}`,
+        }];
+      }));
 
       const summary: TrackSummary = {
         id: trackId,
@@ -228,7 +376,10 @@ export async function discoverClaudeTracks(
         entryCount: null,
         sourceBytes: sourceStat.size,
         state: isRecent ? "recent" : "unknown",
-        capabilities: evidence.capabilities,
+        capabilities: {
+          ...evidence.capabilities,
+          subagents: evidence.capabilities.subagents || subagents.length > 0,
+        },
       };
 
       tracks.push({
@@ -237,9 +388,47 @@ export async function discoverClaudeTracks(
           sourcePath,
           sourceSize: sourceStat.size,
           sourceMtimeMs: sourceStat.mtimeMs,
+          sourceClass: "session",
+          childTracksByAgentId,
         },
       });
+
+      for (const child of subagents) {
+        const childLink = childTracksByAgentId[child.agentId];
+        if (!childLink) continue;
+        const childUpdatedAt = new Date(child.sourceMtimeMs).toISOString();
+        tracks.push({
+          summary: {
+            id: childLink.trackId,
+            providerId: "claude-code",
+            providerLabel: "Claude Code",
+            projectId: `claude-project:${projectIdentity}`,
+            projectLabel,
+            title: childLink.title,
+            startedAt: child.evidence.startedAt,
+            updatedAt: childUpdatedAt,
+            entryCount: null,
+            sourceBytes: child.sourceSize,
+            state: Date.now() - child.sourceMtimeMs <= RECENT_WINDOW_MS ? "recent" : "unknown",
+            capabilities: child.evidence.capabilities,
+            parentTrackId: trackId,
+          },
+          reference: {
+            sourcePath: child.sourcePath,
+            sourceSize: child.sourceSize,
+            sourceMtimeMs: child.sourceMtimeMs,
+            sourceClass: "subagent",
+            parentTrackId: trackId,
+            providerAgentId: child.agentId,
+            childTracksByAgentId,
+          },
+        });
+      }
     }
+  }
+
+  for (const cachedPath of cache.keys()) {
+    if (!seenPaths.has(cachedPath)) cache.delete(cachedPath);
   }
 
   return tracks;

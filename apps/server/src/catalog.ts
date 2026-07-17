@@ -35,8 +35,9 @@ export class TrackCatalog {
   async #performRefresh(): Promise<TrackLibrary> {
     const result = await this.adapter.scan();
     this.#descriptors = new Map(result.tracks.map((track) => [track.summary.id, track]));
+    const rootTracks = result.tracks.filter((track) => !track.summary.parentTrackId);
     this.#library = {
-      tracks: result.tracks.map((track) => track.summary),
+      tracks: rootTracks.map((track) => track.summary),
       scannedAt: result.scannedAt,
       sourceState: result.sourceState,
       sourceMessage: result.sourceMessage,
@@ -44,10 +45,11 @@ export class TrackCatalog {
     return this.#library;
   }
 
-  async library(options: { query?: string; limit?: number; refresh?: boolean } = {}) {
+  async library(options: { query?: string; limit?: number; offset?: number; refresh?: boolean } = {}) {
     const library = !this.#library || options.refresh ? await this.refresh() : this.#library;
     const query = options.query?.trim().toLocaleLowerCase();
     const maximum = Math.min(Math.max(options.limit ?? 100, 1), 500);
+    const offset = Math.max(options.offset ?? 0, 0);
     const tracks = query
       ? library.tracks.filter((track) =>
           [track.title, track.projectLabel, track.providerLabel].some((value) =>
@@ -58,12 +60,20 @@ export class TrackCatalog {
 
     return {
       ...library,
-      tracks: tracks.slice(0, maximum),
+      tracks: tracks.slice(offset, offset + maximum),
       total: tracks.length,
+      offset,
+      nextOffset: offset + maximum < tracks.length ? offset + maximum : null,
     };
   }
 
-  async loadTrack(trackId: string, entryLimit = 500, startSequence = 0): Promise<Track | null> {
+  async loadTrack(
+    trackId: string,
+    entryLimit = 500,
+    startSequence = 0,
+    direction: "forward" | "backward" = "forward",
+    beforeSequence?: number,
+  ): Promise<Track | null> {
     if (!this.#library) {
       await this.refresh();
     }
@@ -75,7 +85,14 @@ export class TrackCatalog {
 
     return this.adapter.loadTrack(descriptor, {
       entryLimit: Math.min(Math.max(entryLimit, 1), 2_000),
-      startSequence: Math.max(startSequence, 0),
+      ...(direction === "forward"
+        ? { direction: "forward" as const, startSequence: Math.max(startSequence, 0) }
+        : {
+            direction: "backward" as const,
+            ...(beforeSequence === undefined
+              ? {}
+              : { beforeSequence: Math.max(beforeSequence, 0) }),
+          }),
     });
   }
 }

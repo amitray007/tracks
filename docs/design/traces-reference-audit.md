@@ -37,8 +37,13 @@ The public reference trace was re-inspected at a 1280×720 CSS viewport on 2026-
 | Base typography | Inter at 14px/20px |
 | Compact user message | Subtle independent surface with approximately 6px vertical and 10px horizontal padding |
 | Command/terminal blocks | Dark inset surface with approximately 6px vertical and 10px horizontal padding |
+| Identity on transcript | Circular person avatar for user messages; dedicated Claude mark without a generic icon container |
+| Tool-call hierarchy | Compact action line first; a strong container appears only when the payload needs it |
+| Edit treatment | Filename/action header with green `+N` and red `−N`, then syntax-colored old/new panes |
 
 The key lesson is that full and compact are intentionally different compositions, not the same column with entries hidden. Full Trace gives more width to chronology and a narrow filter rail. Highlights gives a narrower reading document and a wider contextual rail. Tracks should adopt this mode-specific composition while establishing its own palette, typography details, icons, and sharing workflow.
+
+The implementation review also rejected the repeated “card inside card” pattern common in generated chat interfaces. Tracks now keeps messages and light tool metadata on the timeline itself, reserves bordered surfaces for summaries/code/diffs/errors, uses actual identity assets for people/providers, and uses rectangular metadata labels rather than turning every state into a rounded pill.
 
 ## Identified frontend stack
 

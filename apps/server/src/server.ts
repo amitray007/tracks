@@ -1,10 +1,11 @@
-import { createReadStream } from "node:fs";
+import { createReadStream, watch, type FSWatcher } from "node:fs";
 import { access, stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { dirname, extname, join, normalize, relative, sep } from "node:path";
+import { basename, dirname, extname, join, normalize, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { constants } from "node:fs";
 import { TrackCatalog } from "./catalog.js";
+import { getViewerAvatar, getViewerIdentity } from "./viewer-identity.js";
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
 const DEFAULT_STATIC_DIRECTORY = join(
@@ -136,6 +137,56 @@ export async function startTracksServer(
     ? DEFAULT_STATIC_DIRECTORY
     : options.staticDirectory;
 
+  const eventClients = new Set<ServerResponse>();
+  let eventSequence = 0;
+  let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  let sourceWatcher: FSWatcher | null = null;
+
+  function sendEvent(event: string, value: unknown): void {
+    const payload = `id: ${++eventSequence}\nevent: ${event}\ndata: ${JSON.stringify(value)}\n\n`;
+    for (const client of eventClients) client.write(payload);
+  }
+
+  function scheduleCatalogRefresh(filename: string | Buffer | null): void {
+    if (refreshTimer) clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => {
+      refreshTimer = null;
+      void catalog.refresh().then((nextLibrary) => {
+        const changedFile = filename ? basename(filename.toString()) : null;
+        sendEvent("catalog.updated", {
+          changedFile,
+          scannedAt: nextLibrary.scannedAt,
+          total: nextLibrary.tracks.length,
+        });
+      }).catch(() => {
+        sendEvent("catalog.error", { message: "The Claude session library could not be refreshed." });
+      });
+    }, 140);
+  }
+
+  try {
+    await access(catalog.adapter.sourceRoot, constants.R_OK);
+    sourceWatcher = watch(
+      catalog.adapter.sourceRoot,
+      { recursive: true, persistent: false },
+      (_eventType, filename) => {
+        if (!filename || filename.toString().endsWith(".jsonl")) {
+          scheduleCatalogRefresh(filename);
+        }
+      },
+    );
+    sourceWatcher.on("error", () => {
+      sendEvent("catalog.error", { message: "Live filesystem updates are temporarily unavailable." });
+    });
+  } catch {
+    sourceWatcher = null;
+  }
+
+  const heartbeat = setInterval(() => {
+    for (const client of eventClients) client.write(": heartbeat\n\n");
+  }, 15_000);
+  heartbeat.unref();
+
   const server = createServer(async (request: IncomingMessage, response: ServerResponse) => {
     setSecurityHeaders(response);
 
@@ -165,11 +216,52 @@ export async function startTracksServer(
         return;
       }
 
+      if (requestUrl.pathname === "/api/events") {
+        response.statusCode = 200;
+        response.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+        response.setHeader("Cache-Control", "no-cache, no-transform");
+        response.setHeader("Connection", "keep-alive");
+        response.setHeader("X-Accel-Buffering", "no");
+        response.flushHeaders();
+        eventClients.add(response);
+        response.write(`retry: 1500\nevent: connected\ndata: ${JSON.stringify({ scannedAt: new Date().toISOString() })}\n\n`);
+        request.once("close", () => eventClients.delete(response));
+        return;
+      }
+
+      if (requestUrl.pathname === "/api/viewer") {
+        const identity = await getViewerIdentity();
+        sendJson(response, 200, identity
+          ? {
+              login: identity.login,
+              name: identity.name,
+              avatarUrl: "/api/viewer/avatar",
+              source: "github-cli",
+            }
+          : { login: null, name: null, avatarUrl: null, source: "fallback" });
+        return;
+      }
+
+      if (requestUrl.pathname === "/api/viewer/avatar") {
+        const avatar = await getViewerAvatar();
+        if (!avatar) {
+          sendJson(response, 404, { error: "GitHub avatar unavailable." });
+          return;
+        }
+        response.statusCode = 200;
+        response.setHeader("Content-Type", avatar.contentType);
+        response.setHeader("Content-Length", avatar.body.byteLength);
+        response.setHeader("Cache-Control", "private, max-age=3600");
+        response.end(avatar.body);
+        return;
+      }
+
       if (requestUrl.pathname === "/api/tracks") {
         const query = requestUrl.searchParams.get("q");
         const library = await catalog.library({
           ...(query ? { query } : {}),
           limit: readInteger(requestUrl.searchParams.get("limit"), 100),
+          offset: readInteger(requestUrl.searchParams.get("offset"), 0),
           refresh: requestUrl.searchParams.get("refresh") === "1",
         });
         sendJson(response, 200, library);
@@ -182,6 +274,10 @@ export async function startTracksServer(
           trackId,
           readInteger(requestUrl.searchParams.get("limit"), 500),
           readInteger(requestUrl.searchParams.get("start"), 0),
+          requestUrl.searchParams.get("direction") === "backward" ? "backward" : "forward",
+          requestUrl.searchParams.has("before")
+            ? readInteger(requestUrl.searchParams.get("before"), 0)
+            : undefined,
         );
         if (!track) {
           sendJson(response, 404, { error: "Track not found." });
@@ -220,8 +316,15 @@ export async function startTracksServer(
   return {
     url: `http://${host}:${address.port}`,
     catalog,
-    close: () => new Promise<void>((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve()));
-    }),
+    close: () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      clearInterval(heartbeat);
+      sourceWatcher?.close();
+      for (const client of eventClients) client.end();
+      eventClients.clear();
+      return new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    },
   };
 }

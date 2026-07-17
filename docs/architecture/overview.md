@@ -80,29 +80,32 @@ Each layer has a distinct responsibility:
 - **Provider records** retain Claude Code's actual names, identifiers, ordering, and storage behavior.
 - **The adapter** maps provider meaning into canonical entries. It preserves the original provider term and emits unsupported evidence when a safe mapping is not justified.
 - **The canonical model** describes facts such as a message, invocation, result, process execution, file change, status, or error. It also describes what is unavailable, partial, redacted, or unknown.
+- **Activity facets** add orthogonal, provider-neutral meaning without duplicating chronology. Claude Code Skills, MCP, Channels, Hooks, memory access, and interactive commands remain messages/tools/results/status entries while carrying a bounded activity kind, label, operation, and minimal structured metadata.
 - **View models** combine related canonical facts for presentation, such as a tool call and later result, without changing source chronology.
 - **Components** render minimum valid data first and progressively add optional metadata. They do not branch on `providerId`.
 
 Terminology differences are therefore adapter concerns. Claude Code's current vocabulary informs the first mappings, while future adapters map their own vocabulary into the same semantic concepts only where the evidence is equivalent. The exact provider event kind remains visible in inspection mode.
 
-## Proposed technology choices
+## Technology choices
 
-These are recommendations, not yet binding decisions:
+The table separates the implemented Claude foundation from later candidates so the overview does not present exploratory dependencies as shipped architecture:
 
-| Area | Proposed choice | Reason |
+| Area | Current foundation or direction | Reason |
 | --- | --- | --- |
 | UI | React + TypeScript + Vite | Fast localhost workflow without requiring server rendering |
 | Product entry point | `tracks` CLI | Own service lifecycle, source/index authority, browser launch, status, and diagnostics |
 | Development routing | Pinned Portless | Stable same-origin `.localhost` URL and collision-free development ports; development only |
-| Styling | Tailwind CSS plus semantic CSS variables | Constrained tokens and efficient component iteration |
-| Primitives | Radix UI | Accessible, unstyled interaction building blocks |
+| Styling | Semantic CSS variables and component CSS | Small current surface, explicit density control, and no runtime styling dependency |
+| Primitives | Native HTML controls today; Radix remains a candidate for focus-managed overlays | Preserve accessible semantics without adding abstractions before they are needed |
 | Icons | Semantic `Icon` registry backed initially by `@hugeicons/react` and `@hugeicons/core-free-icons` | A richer provider-neutral glyph set without coupling shared components to a vendor package |
-| Markdown | Streamdown | AI streaming and incomplete Markdown support |
-| Highlighting | Shiki | High-quality code themes and language coverage |
-| Diffs | @pierre/diffs/react | Specialized, customizable diff rendering |
-| Virtualization | @tanstack/react-virtual | Long heterogeneous transcript and result lists |
+| Provider marks | Static tree-independent assets from Lobe Icons | Claude identity is visually distinct from provider-neutral event icons |
+| Markdown | `react-markdown` plus GFM with raw HTML disabled | Safe current transcript rendering; streaming-specific parsing can be evaluated later |
+| Diagrams | Lazy Mermaid and Viz.js renderers in a scriptless, network-blocked SVG sandbox | Covers observed Mermaid and Graphviz/DOT fences while preserving safe source fallbacks |
+| Highlighting | Lazy-loaded `prism-react-renderer` | Syntax color without blocking the initial session-library bundle |
+| Diffs | Purpose-built split renderer for Claude edit/write evidence | Correct `+`/`−`, line gutters, responsive stacking, and syntax-aware old/new panes |
+| Virtualization | Candidate: `@tanstack/react-virtual` | Needed after measuring very long complete traces and scroll anchoring |
 | Local storage | SQLite with FTS5 | Rebuildable metadata and full-text search index |
-| Live updates | File watcher plus server-sent events or WebSocket | Incremental session updates |
+| Live updates | Recursive file watcher plus server-sent events | One-way source invalidation, native browser reconnect, and no bidirectional socket protocol |
 | Validation | TypeScript plus a runtime schema library | Boundary validation for provider and API data |
 | Sharing | Generated static site/package | Offline-capable session/project viewing on ordinary static hosting |
 
@@ -169,6 +172,8 @@ sequenceDiagram
 6. Raw provider data remains referenced by source location or stored in an explicitly bounded cache.
 
 Normalization is allowed to be richer or poorer per session. A missing optional value is not synthesized. When absence affects user understanding, the adapter emits an explicit capability state or diagnostic so the UI can distinguish unsupported, absent, redacted, partial, and failed data.
+
+Activity facets are derived during bounded parsing and are not a second persisted transcript. The local source remains authoritative; the derived index may store the facet and policy-approved searchable labels, while hook output, channel attributes, skill bodies, memory contents, and raw MCP payloads remain source-referenced or explicitly bounded. Static sharing applies its normal redaction policy before any activity metadata enters a bundle.
 
 ### Query
 

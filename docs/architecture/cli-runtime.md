@@ -77,9 +77,11 @@ A likely script shape is `pnpm dev` delegating to a pinned Portless command. The
 
 ## Local live updates
 
-The service watches configured Claude sources and emits bounded deltas. It distinguishes source activity from process liveness:
+The Claude vertical slice recursively watches the configured source and publishes named invalidation events over same-origin SSE. Events contain scan metadata and a changed basename, never an absolute source path. The browser uses native reconnect, refreshes the library, and reparses the complete selected track. This distinguishes source activity from process liveness without claiming that Claude is still running.
 
-- New verified records update the open track.
+The current implementation deliberately reparses rather than inventing append-only semantics for files that Claude may rewrite. Later indexing work should replace the full selected-track refresh with verified bounded deltas while preserving the same visible behavior:
+
+- New verified records update the open track and sidebar without manual refresh.
 - Partial trailing records retain previously parsed entries and show a partial/live state.
 - The UI follows only when already at the live tail.
 - Away from the tail, a new-entry affordance reports the bounded count or “new activity” when the total is unknown.

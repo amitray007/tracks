@@ -15,6 +15,8 @@ export interface ProviderScanResult<TReference = unknown> {
 export interface LoadTrackOptions {
   entryLimit: number;
   startSequence?: number;
+  direction?: "forward" | "backward";
+  beforeSequence?: number;
 }
 
 export interface ProviderAdapter<TReference = unknown> {

@@ -80,6 +80,8 @@ The shell remains visually quiet. It does not show aggregate charts unless a lat
 
 Primary job: locate the session a user wants to inspect.
 
+The local library can be collapsed from its top bar and restored from the sticky workspace header. This is an immediate structural state change rather than a decorative drawer animation on desktop; the existing overlay transition remains for narrow screens.
+
 Required controls:
 
 - Search across title, project, path, message text, tool names, and model.
@@ -117,6 +119,15 @@ The primary track modes are **Compact** and **Full**. **Raw/Inspect** is a secon
 - Counts make hidden/grouped mechanics legible in Compact view.
 - The control uses a stable tab/segmented treatment and does not move when session actions change.
 
+### TraceJumpNavigation
+
+Long tracks expose a compact floating top/bottom navigator in both Compact and Full views.
+
+- It appears only when the document is scrollable and stays outside the primary reading flow.
+- The button for the reached edge is disabled; both buttons remain keyboard- and touch-accessible.
+- Navigation is immediate rather than smoothly animating through a potentially very long trace.
+- It moves the viewport only and never changes canonical order, active filters, or trace-order preference.
+
 ### CompactTrackView
 
 Compact view is a deterministic narrative projection:
@@ -130,13 +141,14 @@ Compact view is a deterministic narrative projection:
 
 ### FullTrackView
 
-Full view renders every canonical entry in provider order:
+Full view renders every canonical entry in provider order by default:
 
 - Uses a left filter/outline rail on wide layouts and an 820–880px chronology.
 - Preserves unsupported, parse, partial, status, and provider-specific evidence markers.
 - Applies progressive disclosure within entries but does not remove entries from chronology unless the user activates a filter.
 - Is the authoritative destination for cross-view evidence links.
 - Supports active/open-ended tracks through stable windowing and follow-tail behavior.
+- Offers a URL-addressable latest-first presentation without changing canonical sequence or tool relationships. The order choice is shared with Compact view.
 
 ### TrackHeader
 
@@ -155,12 +167,22 @@ Local links should use stable Tracks IDs rather than exposing raw absolute paths
 Filters operate on canonical event kinds, not provider names. They support:
 
 - User, assistant, reasoning, tools, commands, file changes, sub-agents, errors.
-- Text search within the current track.
+- Case-insensitive text and regular-expression filtering within the current Compact or Full projection, with live match counts and invalid-pattern feedback.
 - “Only failures,” “only changed files,” and “hide reasoning” quick filters.
 - A visible count and active state for each category.
 - Clear-all from keyboard and pointer.
 
 Filtering should not destroy scroll position. When the selected entry is filtered out, move selection to the nearest visible entry and announce the change.
+
+Full view separates broad evidence controls from provider-neutral activity facets. Skills, MCP, Channels, Hooks, memory, and interactive commands each have an independent rectangular filter with a loaded-slice count. Activity controls own their related call/result pair or inbound/status event, while ordinary tool-operation filters continue to govern non-activity file, shell, search, agent, and integration tools. This prevents a Skill invocation from being hidden behind both “Other tool” and “Status” switches.
+
+The track search field lives in the sticky workspace header rather than the wide-only details rail. This keeps it reachable while reading long tracks and at breakpoints where the rail is hidden. Search terms are ephemeral local UI state and are not added to copied session URLs. Match counts explicitly describe the loaded projection; when later pages remain, the track provides a “Search more entries” continuation instead of silently materializing the complete source in browser memory.
+
+Copying the session link adds an explicit session-only presentation mode. That mode retains the track and details rail, omits the local library from both rendering and catalog requests, and labels linked parent/sub-agent transcripts as not included. It remains visibly distinct from ShareFlow: the local link is not a sanitized bundle and does not grant network access.
+
+### InfiniteLoadSentinel
+
+Session libraries load in 60-item server-backed pages and tracks load in 120-entry provider-order pages. A near-viewport intersection automatically requests the next page, while the same sentinel remains a real button for keyboard users, assistive technology, failed requests, and environments without intersection observation. Oldest-first tracks page forward; latest-first tracks page backward from the true provider tail and reverse only the presentation. Live refreshes reconcile the loaded window rather than fetching the entire session.
 
 ### TrackInspector
 
@@ -315,6 +337,14 @@ Unsupported provider data is visible, compact, and inspectable:
 - Line numbers only when they add reference value.
 - Maximum initial height with explicit expansion for very long snippets.
 - Plain-text fallback while highlighting loads or fails.
+
+### DiagramRenderer
+
+- Detects explicit diagram fence languages rather than guessing from ordinary code.
+- Renders Mermaid and Graphviz/DOT locally and lazily near the viewport.
+- Sanitizes generated SVG and displays it in a scriptless sandbox with network access blocked.
+- Provides source/preview, copy, and bounded zoom controls without obscuring the diagram.
+- Keeps malformed, oversized, PlantUML, D2, Nomnoml, and Svgbob input inspectable as source when no safe local renderer is available.
 
 ### DiffViewer
 

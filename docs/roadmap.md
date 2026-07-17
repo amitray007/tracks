@@ -270,7 +270,7 @@ Create an ADR before locking in:
 - Provider-authoritative versus indexed/cached/user-owned data boundary.
 - SQLite schema and migration tool.
 - Redaction-before-indexing rules and cache retention/deletion behavior.
-- HTTP live-update protocol: server-sent events versus WebSocket.
+- Incremental SSE payload shape after the accepted invalidation-and-refetch vertical slice.
 - Canonical runtime validation library.
 - Revision-safe raw references and raw payload cache versus on-demand source reads.
 - Adapter chunking, transaction staging, and backpressure limits.

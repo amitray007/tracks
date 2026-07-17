@@ -1,5 +1,8 @@
-import type { ToolCallEntry, ToolResultEntry } from "@tracks/core-model";
+import { lazy, Suspense } from "react";
+import type { SubAgentEntry, ToolCallEntry, ToolResultEntry } from "@tracks/core-model";
+import { ClaudeCodeIcon } from "../ui/ClaudeCodeIcon";
 import { CopyButton } from "../ui/CopyButton";
+import { languageForPath } from "../ui/codeLanguage";
 import { Icon, type IconName } from "../ui/Icon";
 import { MarkdownContent } from "../ui/MarkdownContent";
 
@@ -17,6 +20,18 @@ export type ToolIntent =
   | "other";
 
 type UnknownRecord = Record<string, unknown>;
+
+const HighlightedCode = lazy(() => import("../ui/HighlightedCode").then((module) => ({
+  default: module.HighlightedCode,
+})));
+
+function SyntaxCode({ code, language }: { code: string; language: string }) {
+  return (
+    <Suspense fallback={<span className="syntax-line">{code}</span>}>
+      <HighlightedCode code={code} language={language} />
+    </Suspense>
+  );
+}
 
 function asRecord(value: unknown): UnknownRecord | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -108,6 +123,9 @@ export function toolIntent(entry: ToolCallEntry): ToolIntent {
 }
 
 export function toolIcon(entry: ToolCallEntry): IconName {
+  if (entry.activity?.kind === "skill") return "skill";
+  if (entry.activity?.kind === "mcp") return "mcp";
+  if (entry.activity?.kind === "memory") return "memory";
   switch (toolIntent(entry)) {
     case "command": return "command";
     case "read": return "read";
@@ -145,6 +163,14 @@ export function toolHeadline(entry: ToolCallEntry): string {
   const query = stringValue(input, "query", "pattern");
   const command = stringValue(input, "command");
 
+  if (entry.activity?.kind === "skill") return `Invoked ${entry.activity.label}`;
+  if (entry.activity?.kind === "mcp") return `${humanize(entry.activity.operation)} · ${humanize(entry.activity.label)}`;
+  if (entry.activity?.kind === "memory") {
+    return entry.activity.operation === "read"
+      ? `Recalled ${entry.activity.label}`
+      : `Updated ${entry.activity.label}`;
+  }
+
   switch (toolIntent(entry)) {
     case "command": return `Ran ${description ?? command?.split("\n", 1)[0] ?? entry.name}`;
     case "read": return `Read ${path ? fileName(path) : entry.name}`;
@@ -171,6 +197,9 @@ export function toolHeadline(entry: ToolCallEntry): string {
 export function toolResultHeadline(call: ToolCallEntry | undefined, isError: boolean): string {
   if (isError) return "Tool error";
   if (!call) return "Tool result";
+  if (call.activity?.kind === "skill") return "Skill instructions";
+  if (call.activity?.kind === "mcp") return `MCP response · ${humanize(call.activity.label)}`;
+  if (call.activity?.kind === "memory") return call.activity.operation === "read" ? "Memory contents" : "Memory updated";
   switch (toolIntent(call)) {
     case "command": return "Command output";
     case "read": return "File contents";
@@ -187,6 +216,7 @@ export function toolResultHeadline(call: ToolCallEntry | undefined, isError: boo
 }
 
 export function toolTone(entry: ToolCallEntry): string {
+  if (entry.activity) return entry.activity.kind;
   return toolIntent(entry);
 }
 
@@ -203,7 +233,12 @@ function RawArguments({ input }: { input: unknown }) {
 }
 
 function TechnicalLabel({ entry }: { entry: ToolCallEntry }) {
-  return <span className="tool-technical-label">Claude tool · {entry.name}</span>;
+  return (
+    <span className="tool-technical-label" title={`Claude Code tool: ${entry.name}`}>
+      <ClaudeCodeIcon size={10} />
+      <span>{entry.name}</span>
+    </span>
+  );
 }
 
 function CommandCall({ entry, input }: { entry: ToolCallEntry; input: UnknownRecord | null }) {
@@ -214,7 +249,7 @@ function CommandCall({ entry, input }: { entry: ToolCallEntry; input: UnknownRec
         <span><Icon name="command" size="xs" />Shell</span>
         <CopyButton value={command} label="Copy command" />
       </div>
-      <pre>{command}</pre>
+      <pre><SyntaxCode code={command} language="bash" /></pre>
     </div>
   );
 }
@@ -231,9 +266,7 @@ function FileChangeCall({ entry, input, intent }: {
     : stringValue(input, "new_string", "new_text", "content") ?? "";
   const removed = clippedLines(oldText);
   const added = clippedLines(newText);
-  const changeCount = intent === "delete"
-    ? `${Math.max(1, removed.total)} removed`
-    : `${added.total} added${removed.total ? ` · ${removed.total} removed` : ""}`;
+  const language = languageForPath(path);
 
   return (
     <div className="file-change-card" data-intent={intent}>
@@ -242,22 +275,37 @@ function FileChangeCall({ entry, input, intent }: {
           <Icon name={intent} size="sm" />
           <span>{shortPath(path)}</span>
         </span>
-        <span className="file-change-count">{changeCount}</span>
+        <span className="file-change-count" aria-label={`${added.total} added, ${removed.total} removed`}>
+          {added.total > 0 ? <span className="addition-count">+{added.total}</span> : null}
+          {removed.total > 0 || intent === "delete" ? <span className="deletion-count">−{Math.max(1, removed.total)}</span> : null}
+        </span>
       </header>
       {intent === "delete" && !oldText ? (
         <div className="file-delete-note">The tool requested that this file or item be removed.</div>
       ) : (
-        <div className="diff-view" aria-label={`${intent} preview`}>
-          {removed.lines.map((line, index) => (
-            <div className="diff-line diff-removed" key={`removed-${index}`}>
-              <span className="diff-sign">−</span><span className="diff-number">{index + 1}</span><code>{line || " "}</code>
+        <div className="diff-view" data-single-pane={removed.lines.length === 0 || added.lines.length === 0} aria-label={`${intent} preview`}>
+          {removed.lines.length > 0 ? (
+            <div className="diff-pane diff-removed" aria-label="Removed lines">
+              {removed.lines.map((line, index) => (
+                <div className="diff-line" key={`removed-${index}`}>
+                  <span className="diff-sign">−</span>
+                  <span className="diff-number">{index + 1}</span>
+                  <code><SyntaxCode code={line || " "} language={language} /></code>
+                </div>
+              ))}
             </div>
-          ))}
-          {added.lines.map((line, index) => (
-            <div className="diff-line diff-added" key={`added-${index}`}>
-              <span className="diff-sign">+</span><span className="diff-number">{index + 1}</span><code>{line || " "}</code>
+          ) : null}
+          {added.lines.length > 0 ? (
+            <div className="diff-pane diff-added" aria-label="Added lines">
+              {added.lines.map((line, index) => (
+                <div className="diff-line" key={`added-${index}`}>
+                  <span className="diff-sign">+</span>
+                  <span className="diff-number">{index + 1}</span>
+                  <code><SyntaxCode code={line || " "} language={language} /></code>
+                </div>
+              ))}
             </div>
-          ))}
+          ) : null}
           {removed.hidden + added.hidden > 0 ? (
             <div className="diff-clipped">{(removed.hidden + added.hidden).toLocaleString()} more lines hidden in this preview</div>
           ) : null}
@@ -338,8 +386,99 @@ function StructuredCall({ entry, input, intent }: {
   );
 }
 
-export function ToolCallBody({ entry }: { entry: ToolCallEntry }) {
+function AgentCall({
+  entry,
+  input,
+  relatedSubAgent,
+  onOpenTrack,
+}: {
+  entry: ToolCallEntry;
+  input: UnknownRecord | null;
+  relatedSubAgent: SubAgentEntry | undefined;
+  onOpenTrack: ((trackId: string) => void) | undefined;
+}) {
+  const objective = stringValue(input, "description", "prompt") ?? relatedSubAgent?.objective;
+  const agentType = relatedSubAgent?.label ?? stringValue(input, "subagent_type", "agent_type") ?? "Sub-agent";
+  const childTrackId = relatedSubAgent?.childTrackId;
+  return (
+    <div className="agent-call-card">
+      <header>
+        <span><Icon name="agent" size="sm" />Delegated task</span>
+        <code>{humanize(agentType)}</code>
+      </header>
+      {objective ? <div className="agent-call-objective"><MarkdownContent value={objective} /></div> : null}
+      <footer>
+        <TechnicalLabel entry={entry} />
+        <div className="agent-call-actions">
+          <RawArguments input={entry.input} />
+          {childTrackId && onOpenTrack ? (
+            <button type="button" onClick={() => onOpenTrack(childTrackId)}>
+              Open transcript
+              <Icon name="link" size="xs" />
+            </button>
+          ) : <span>{childTrackId ? "Transcript not included" : "Transcript pending"}</span>}
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+function ActivityToolCall({ entry, input }: { entry: ToolCallEntry; input: UnknownRecord | null }) {
+  const activity = entry.activity;
+  if (!activity) return null;
+  const intent = toolIntent(entry);
+
+  if (activity.kind === "memory") {
+    return (
+      <div className="memory-tool-call">
+        <div className="memory-tool-context">
+          <span><Icon name="memory" size="xs" />Claude memory</span>
+          <span>{activity.operation === "read" ? "Recalled" : "Updated"}</span>
+        </div>
+        {intent === "read"
+          ? <ReadCall entry={entry} input={input} />
+          : intent === "edit" || intent === "create" || intent === "delete"
+            ? <FileChangeCall entry={entry} input={input} intent={intent} />
+            : <StructuredCall entry={entry} input={input} intent={intent} />}
+      </div>
+    );
+  }
+
+  const prompt = activity.kind === "skill"
+    ? stringValue(input, "args")
+    : stringValue(input, "prompt", "description");
+  const rows = Object.entries(input ?? {})
+    .filter(([key, value]) => key !== "args" && ["string", "number", "boolean"].includes(typeof value))
+    .filter(([, value]) => String(value).length < 220)
+    .slice(0, 5);
+
+  return (
+    <div className="activity-tool-card" data-kind={activity.kind}>
+      <header>
+        <span className="activity-tool-kind"><Icon name={activity.kind === "skill" ? "skill" : "mcp"} size="sm" />{activity.kind === "skill" ? "Skill" : "MCP"}</span>
+        <strong>{activity.kind === "skill" ? activity.label : humanize(activity.label)}</strong>
+        {activity.kind === "mcp" ? <code>{humanize(activity.operation)}</code> : null}
+      </header>
+      {prompt ? <div className="activity-tool-prompt"><MarkdownContent value={prompt} /></div> : null}
+      {rows.length > 0 ? <dl>{rows.map(([key, value]) => <div key={key}><dt>{humanize(key)}</dt><dd>{String(value)}</dd></div>)}</dl> : null}
+      <footer><TechnicalLabel entry={entry} /><RawArguments input={entry.input} /></footer>
+    </div>
+  );
+}
+
+export function ToolCallBody({
+  entry,
+  relatedSubAgent,
+  onOpenTrack,
+}: {
+  entry: ToolCallEntry;
+  relatedSubAgent: SubAgentEntry | undefined;
+  onOpenTrack: ((trackId: string) => void) | undefined;
+}) {
   const input = asRecord(entry.input);
+  if (entry.activity?.kind === "skill" || entry.activity?.kind === "mcp" || entry.activity?.kind === "memory") {
+    return <ActivityToolCall entry={entry} input={input} />;
+  }
   const intent = toolIntent(entry);
   switch (intent) {
     case "command": return <CommandCall entry={entry} input={input} />;
@@ -351,7 +490,12 @@ export function ToolCallBody({ entry }: { entry: ToolCallEntry }) {
     case "read": return <ReadCall entry={entry} input={input} />;
     case "search": return <SearchCall entry={entry} input={input} />;
     case "question": return <QuestionCall entry={entry} input={input} />;
-    case "agent":
+    case "agent": return <AgentCall
+      entry={entry}
+      input={input}
+      relatedSubAgent={relatedSubAgent}
+      onOpenTrack={onOpenTrack}
+    />;
     case "calendar":
     case "integration":
     case "other": return <StructuredCall entry={entry} input={input} intent={intent} />;
@@ -371,6 +515,59 @@ export function resultText(content: unknown): string {
   return stringValue(record, "text", "content") ?? jsonText(content);
 }
 
+function compactNumber(value: number): string {
+  return new Intl.NumberFormat(undefined, {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
+function durationLabel(milliseconds: number): string {
+  const totalSeconds = Math.round(milliseconds / 1_000);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+}
+
+function AgentResult({ entry, text }: { entry: ToolResultEntry; text: string }) {
+  const payload = asRecord(entry.content);
+  const usage = asRecord(payload?.usage);
+  const summary = stringValue(payload, "summary");
+  const status = stringValue(payload, "status") ?? (entry.isError ? "failed" : "completed");
+  const taskId = stringValue(payload, "taskId");
+  const tokens = numberValue(usage, "subagentTokens");
+  const toolUses = numberValue(usage, "toolUses");
+  const durationMs = numberValue(usage, "durationMs");
+  const clipped = text.length > 12_000 ? `${text.slice(0, 12_000)}\n… output clipped in this view` : text;
+
+  return (
+    <div className={`agent-result-card${entry.isError ? " is-error" : ""}`}>
+      <header>
+        <span className="agent-result-title" title={summary ?? "Background agent task"}>
+          <Icon name="agent" size="sm" />
+          <span>{summary ?? "Background agent task"}</span>
+        </span>
+        <span className="agent-result-status">{humanize(status)}</span>
+      </header>
+      <div className="entry-prose agent-result-copy">
+        <MarkdownContent value={clipped || "No result content"} />
+      </div>
+      <footer>
+        <div className="agent-result-metrics" title={taskId ? `Claude task ${taskId}` : undefined}>
+          {tokens !== null ? <span title={`${tokens.toLocaleString()} sub-agent tokens`}>{compactNumber(tokens)} tokens</span> : null}
+          {toolUses !== null ? <span>{toolUses.toLocaleString()} tool {toolUses === 1 ? "use" : "uses"}</span> : null}
+          {durationMs !== null ? <span title={`${durationMs.toLocaleString()} ms`}>{durationLabel(durationMs)}</span> : null}
+        </div>
+        <CopyButton value={text} label="Copy agent result" />
+      </footer>
+    </div>
+  );
+}
+
 export function ToolResultBody({ entry, call }: {
   entry: ToolResultEntry;
   call: ToolCallEntry | undefined;
@@ -378,6 +575,13 @@ export function ToolResultBody({ entry, call }: {
   const text = resultText(entry.content);
   const intent = call ? toolIntent(call) : "other";
   const clipped = text.length > 12_000 ? `${text.slice(0, 12_000)}\n… output clipped in this view` : text;
+  const callInput = call ? asRecord(call.input) : null;
+  const sourcePath = stringValue(callInput, "file_path", "path", "notebook_path");
+  const activityKind = call?.activity?.kind;
+
+  if (intent === "agent" && stringValue(asRecord(entry.content), "taskId")) {
+    return <AgentResult entry={entry} text={text} />;
+  }
 
   if (!entry.isError && call && ["edit", "create", "delete"].includes(intent)) {
     return (
@@ -389,12 +593,22 @@ export function ToolResultBody({ entry, call }: {
   }
 
   return (
-    <div className={`tool-surface result-surface result-${intent}${entry.isError ? " is-error" : ""}`}>
+    <div className={`tool-surface result-surface result-${activityKind ?? intent}${entry.isError ? " is-error" : ""}`}>
       <div className="tool-card-bar">
-        <span>{entry.isError ? "Error output" : call ? `From ${call.name}` : "Result data"}</span>
+        <span>{entry.isError
+          ? "Error output"
+          : activityKind === "skill"
+            ? "Loaded skill instructions"
+            : activityKind === "mcp"
+              ? `Response from ${call?.activity?.label ?? "MCP"}`
+              : activityKind === "memory"
+                ? "Claude memory"
+                : call ? `From ${call.name}` : "Result data"}</span>
         <CopyButton value={text} label="Copy output" />
       </div>
-      <pre>{clipped || "No result content"}</pre>
+      <pre>{intent === "read" && sourcePath
+        ? <SyntaxCode code={clipped || "No result content"} language={languageForPath(sourcePath)} />
+        : clipped || "No result content"}</pre>
     </div>
   );
 }

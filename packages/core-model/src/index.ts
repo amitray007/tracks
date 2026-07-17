@@ -34,15 +34,39 @@ export const TrackSummarySchema = z.object({
   sourceBytes: z.number().int().nonnegative(),
   state: z.enum(["live", "recent", "complete", "unknown", "partial"]),
   capabilities: TrackCapabilitiesSchema,
+  parentTrackId: z.string().min(1).nullable().optional(),
 });
 
 export type TrackSummary = z.infer<typeof TrackSummarySchema>;
+
+export const ActivityKindSchema = z.enum([
+  "skill",
+  "mcp",
+  "channel",
+  "hook",
+  "memory",
+  "command",
+]);
+
+export type ActivityKind = z.infer<typeof ActivityKindSchema>;
+
+export const EntryActivitySchema = z.object({
+  kind: ActivityKindSchema,
+  label: z.string().min(1),
+  operation: z.string().min(1),
+  data: z.record(z.string(), z.unknown()).optional(),
+});
+
+export type EntryActivity = z.infer<typeof EntryActivitySchema>;
 
 const EntryBaseSchema = z.object({
   id: z.string().min(1),
   sequence: z.number().int().nonnegative(),
   timestamp: z.string().datetime().nullable(),
+  durationMs: z.number().int().nonnegative().nullable().optional(),
+  parentEntryId: z.string().min(1).nullable().optional(),
   providerRecordKind: z.string().nullable(),
+  activity: EntryActivitySchema.optional(),
 });
 
 export const MessageEntrySchema = EntryBaseSchema.extend({
@@ -79,6 +103,23 @@ export const StatusEntrySchema = EntryBaseSchema.extend({
   tone: z.enum(["neutral", "success", "warning", "danger"]),
 });
 
+export const SubAgentEntrySchema = EntryBaseSchema.extend({
+  kind: z.literal("sub_agent"),
+  childTrackId: z.string().min(1).nullable(),
+  childProviderSessionId: z.string().min(1).nullable(),
+  label: z.string().min(1).nullable(),
+  objective: z.string().min(1).nullable(),
+  status: z.enum([
+    "waiting",
+    "running",
+    "complete",
+    "failed",
+    "cancelled",
+    "partial",
+    "unknown",
+  ]),
+});
+
 export const UnsupportedEntrySchema = EntryBaseSchema.extend({
   kind: z.literal("unsupported"),
   summary: z.string().min(1),
@@ -90,6 +131,7 @@ export const TrackEntrySchema = z.discriminatedUnion("kind", [
   ReasoningEntrySchema,
   ToolCallEntrySchema,
   ToolResultEntrySchema,
+  SubAgentEntrySchema,
   StatusEntrySchema,
   UnsupportedEntrySchema,
 ]);
@@ -98,6 +140,7 @@ export type MessageEntry = z.infer<typeof MessageEntrySchema>;
 export type ReasoningEntry = z.infer<typeof ReasoningEntrySchema>;
 export type ToolCallEntry = z.infer<typeof ToolCallEntrySchema>;
 export type ToolResultEntry = z.infer<typeof ToolResultEntrySchema>;
+export type SubAgentEntry = z.infer<typeof SubAgentEntrySchema>;
 export type StatusEntry = z.infer<typeof StatusEntrySchema>;
 export type UnsupportedEntry = z.infer<typeof UnsupportedEntrySchema>;
 export type TrackEntry = z.infer<typeof TrackEntrySchema>;
@@ -111,9 +154,25 @@ export const TrackDiagnosticSchema = z.object({
 
 export type TrackDiagnostic = z.infer<typeof TrackDiagnosticSchema>;
 
+export const EntryRelationSchema = z.object({
+  type: z.enum([
+    "responds-to",
+    "tool-call-result",
+    "caused",
+    "parent-child",
+    "supersedes",
+    "same-artifact",
+  ]),
+  fromEntryId: z.string().min(1),
+  toEntryId: z.string().min(1),
+});
+
+export type EntryRelation = z.infer<typeof EntryRelationSchema>;
+
 export const TrackSchema = z.object({
   summary: TrackSummarySchema,
   entries: z.array(TrackEntrySchema),
+  relations: z.array(EntryRelationSchema).default([]),
   diagnostics: z.array(TrackDiagnosticSchema),
   truncated: z.boolean(),
   nextSequence: z.number().int().nonnegative().nullable(),

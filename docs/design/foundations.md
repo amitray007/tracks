@@ -162,7 +162,7 @@ Tracks defines named compositions rather than letting each screen invent a grid:
 
 Use approximately 48–64px between a persistent rail and the reading column on expansive layouts. The exact value should respond to available width, but the rail and transcript must not appear as one undifferentiated panel.
 
-Compact view is not a smaller font or a lossy transcript. It uses the same base reading typography, stable anchors, and renderer contracts while grouping related tool facts, collapsing low-signal output, and foregrounding the narrative. Full view restores every canonical and unsupported entry in chronological order.
+Compact view is not a smaller font or a lossy transcript. It uses the same base reading typography, stable anchors, and renderer contracts while grouping related tool facts, collapsing low-signal output, and foregrounding the narrative. Full view restores every canonical and unsupported entry. Both views default to chronological provider order and may reverse the presentation when the user selects latest-first; canonical sequence remains unchanged.
 
 ### Breakpoints
 
@@ -177,7 +177,7 @@ Breakpoints describe layout behavior rather than device brands:
 
 ### Scroll ownership
 
-- The document owns vertical scrolling by default.
+- The workspace owns the primary session scroll, while the session library owns a separate contained list scroll so wheel and touch input never move both surfaces together.
 - Popovers, dialogs, command palette results, and very large raw payloads may own internal scroll regions.
 - Avoid nested vertical scroll areas inside normal entries.
 - Sticky controls must not cover anchored content when navigating by URL or keyboard.

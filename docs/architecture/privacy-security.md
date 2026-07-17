@@ -9,7 +9,7 @@ The default posture is:
 - Read-only provider access.
 - Explicit source boundaries.
 - Loopback-only network binding.
-- No telemetry or outbound content requests.
+- No telemetry or outbound session-content requests. The optional GitHub CLI identity treatment may resolve the signed-in user's public profile/avatar without sending session data.
 - Untrusted rendering for every provider field.
 - Least privilege for adapters and operating-system actions.
 - Visible redaction and provenance.
@@ -149,6 +149,12 @@ SQLite journal/WAL files, temporary sort files, FTS shadow tables, worker caches
 
 Raw references include a source revision or verifiable content hash. When the source has changed, Tracks either verifies the referenced content, serves a deliberately retained bounded cache entry, or reports that the evidence is stale/unavailable. It never resolves a locator against new bytes and labels them as the original record.
 
+### Current vertical-slice storage
+
+The current Claude viewer does not create a Tracks database or copy session payloads. It scans Claude's authoritative JSONL files, normalizes the selected track in process/browser memory, and discards that derived data when the process or tab closes. The live SSE endpoint also keeps only response handles, sequence counters, and debounce state in memory.
+
+When available, Tracks asks the already authenticated `gh` CLI for the current public profile and proxies the avatar through the loopback server so the browser does not contact GitHub directly. The identity/avatar is cached only in server memory for the process lifetime; failures fall back to a generic local avatar. No prompt, tool, path, or session data is sent with that lookup.
+
 Users must be able to delete rebuildable index/cache data independently from user-owned metadata, and separately delete all Tracks-owned data. The UI explains that deleting the Tracks index does not delete the provider's authoritative session files.
 
 ## Adapter safety
@@ -198,6 +204,7 @@ Publishing is a separate boundary after export:
 - A returned URL is labeled local, public, direct-link, or authenticated/private according to the destination's actual enforcement.
 - Local publisher receipts and share definitions are user-owned metadata. Remote revoke/delete is verified separately and never inferred from local deletion.
 - Non-loopback preview/hosting requires explicit authentication and threat review; copying an ordinary local link does not enable network access.
+- A copied local session link uses a session-only presentation: the browser does not request or render the local catalog, and parent/sub-agent transcript navigation is disabled unless those revisions are explicitly included. This is a UI/data-minimization boundary, not a sanitized export or access-control mechanism.
 
 ## Security verification
 

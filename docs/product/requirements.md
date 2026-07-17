@@ -55,7 +55,7 @@ Priority levels:
 | ID | Priority | Requirement |
 | --- | --- | --- |
 | LIB-01 | P0 | Build a local index of sessions and searchable text. |
-| LIB-02 | P0 | List sessions by last activity with provider, project, model, status, and key counts. |
+| LIB-02 | P0 | List sessions by last activity with provider, project, model, status, and key counts through bounded server-backed pages rather than loading the complete library into the browser. |
 | LIB-03 | P0 | Search title, project, path, messages, tool names, commands, and changed filenames. |
 | LIB-04 | P0 | Filter by provider, project, date range, and completion/error status. |
 | LIB-05 | P0 | Preserve useful library results while background indexing continues. |
@@ -67,20 +67,22 @@ Priority levels:
 
 | ID | Priority | Requirement |
 | --- | --- | --- |
-| TRK-01 | P0 | Render canonical entries in chronological order with stable deep links. |
+| TRK-01 | P0 | Render canonical entries in chronological provider order by default, with a stable URL-addressable latest-first presentation that does not mutate canonical sequence or deep links. |
 | TRK-02 | P0 | Support user, assistant, reasoning, tool call/result, command, file change, sub-agent, status, error, and unsupported entries. |
 | TRK-03 | P0 | Filter visible entries by canonical kind without reparsing the source. |
-| TRK-04 | P0 | Search within a track and move between matches. |
+| TRK-04 | P0 | Filter the loaded Compact or Full track projection with case-insensitive text or regular expressions, including live match counts, invalid-pattern feedback, an explicit clear action, and a way to continue searching later pages. |
 | TRK-05 | P0 | Expand/collapse tool requests, results, reasoning, raw data, and diffs. |
 | TRK-06 | P0 | Distinguish provider truncation, Tracks collapsing, unavailable data, redaction, and parse failure. |
 | TRK-07 | P0 | Preserve raw provider payload access for every entry when safe and available. |
 | TRK-08 | P1 | Provide an outline of messages, tools, changed files, errors, and sub-agents. |
 | TRK-09 | P1 | Restore view mode, filters, selected entry, and scroll anchor from the URL where practical. |
-| TRK-10 | P0 | Window or virtualize large sessions while maintaining selection, focus, anchors, and an accessible segmented fallback when required. |
+| TRK-10 | P0 | Load large sessions through bounded forward and backward pages with automatic intersection loading plus an explicit segmented fallback, while maintaining order, selection, focus, and anchors. |
 | TRK-11 | P0 | Render every canonical entry from its documented minimum shape when optional provider data is unavailable. |
 | TRK-12 | P0 | Distinguish loading, absent, unsupported, partial, redacted, stale, parse-failed, and policy-hidden data where the distinction affects user understanding. |
 | TRK-13 | P0 | Provide compact and full URL-addressable views over the same canonical evidence and preserve entry anchors when switching. |
 | TRK-14 | P0 | Make compact view deterministic and reversible: grouped/collapsed mechanics always link to their full entries and are not silently discarded. |
+| TRK-15 | P1 | Provide an always-available, accessible way to jump to the top or bottom of long Compact and Full traces without changing trace order. |
+| TRK-16 | P0 | Normalize and independently filter Skills, MCP, Channels, Hooks, Claude memory access, and interactive Claude Code commands without duplicating their canonical message/tool/result/status evidence. |
 
 ### Specialized rendering
 
@@ -95,6 +97,8 @@ Priority levels:
 | RND-07 | P1 | Render large structured arguments/results as an accessible collapsible tree. |
 | RND-08 | P1 | Offload expensive diffing/highlighting from the main thread. |
 | RND-09 | P0 | Keep huge entry bodies outside normal entry payloads and retrieve them through bounded artifact/result views on demand. |
+| RND-10 | P1 | Render Mermaid and Graphviz/DOT fences as locally generated, sandboxed diagrams with source, copy, zoom, malformed-input fallback, and source-only handling for recognized unsupported formats. |
+| RND-11 | P0 | Give Skills, MCP calls, channel messages, hook outcomes, memory reads/edits, and interactive commands distinct compact renderers with raw provider detail available through progressive disclosure. |
 
 ### Live sessions
 
@@ -130,7 +134,7 @@ Priority levels:
 | --- | --- | --- |
 | NAV-01 | P0 | Support keyboard navigation between visible entries. |
 | NAV-02 | P0 | Provide a command palette for sessions, entries, filters, views, and actions. |
-| NAV-03 | P0 | Copy stable local links and exact content where applicable. |
+| NAV-03 | P0 | Copy stable session-scoped local links and exact content where applicable; opening a copied session link must omit the private local library and must not traverse into unselected related sessions. |
 | NAV-04 | P0 | Provide visible focus and deterministic focus return. |
 | NAV-05 | P0 | Open a UI-first sanitized sharing workflow for the current track or project selection. |
 | NAV-06 | P2 | Compare two tracks or two branches of a track. |
@@ -150,6 +154,7 @@ Priority levels:
 | SHR-09 | P1 | Show a revision/inclusion diff before refreshing an existing session or project share. |
 | SHR-10 | P1 | Return a copyable public/direct/private hosted URL in one short UI flow, without making publisher authentication required for local viewing or static export. |
 | SHR-11 | P2 | Support additional publisher integrations through the restricted bundle-only contract. |
+| SHR-12 | P0 | Keep the local session-link presentation and generated single-session bundle free of the local library; project navigation appears only in explicitly reviewed project bundles. |
 
 ## Privacy and security requirements
 
