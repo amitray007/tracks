@@ -134,7 +134,7 @@ Priority levels:
 | --- | --- | --- |
 | NAV-01 | P0 | Support keyboard navigation between visible entries. |
 | NAV-02 | P0 | Provide a command palette for sessions, entries, filters, views, and actions. |
-| NAV-03 | P0 | Copy stable local links and exact content where applicable. |
+| NAV-03 | P0 | Copy stable session-scoped local links and exact content where applicable; opening a copied session link must omit the private local library and must not traverse into unselected related sessions. |
 | NAV-04 | P0 | Provide visible focus and deterministic focus return. |
 | NAV-05 | P0 | Open a UI-first sanitized sharing workflow for the current track or project selection. |
 | NAV-06 | P2 | Compare two tracks or two branches of a track. |
@@ -154,6 +154,7 @@ Priority levels:
 | SHR-09 | P1 | Show a revision/inclusion diff before refreshing an existing session or project share. |
 | SHR-10 | P1 | Return a copyable public/direct/private hosted URL in one short UI flow, without making publisher authentication required for local viewing or static export. |
 | SHR-11 | P2 | Support additional publisher integrations through the restricted bundle-only contract. |
+| SHR-12 | P0 | Keep the local session-link presentation and generated single-session bundle free of the local library; project navigation appears only in explicitly reviewed project bundles. |
 
 ## Privacy and security requirements
 

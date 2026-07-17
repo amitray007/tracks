@@ -43,6 +43,7 @@ import { CopyButton } from "./ui/CopyButton";
 import { ClaudeCodeIcon } from "./ui/ClaudeCodeIcon";
 import { Icon, type IconName } from "./ui/Icon";
 import { MarkdownContent } from "./ui/MarkdownContent";
+import { createSessionShareUrl, isSessionShareUrl } from "./shareUrl";
 
 type ViewMode = "compact" | "full";
 type LiveState = "connecting" | "live" | "reconnecting";
@@ -319,7 +320,7 @@ function EntryBody({ entry, relatedToolCall, relatedSubAgent, onOpenTrack }: {
   entry: TrackEntry;
   relatedToolCall: ToolCallEntry | undefined;
   relatedSubAgent: SubAgentEntry | undefined;
-  onOpenTrack(trackId: string): void;
+  onOpenTrack: ((trackId: string) => void) | undefined;
 }) {
   if (entry.activity && entry.kind !== "tool_call" && entry.kind !== "tool_result") {
     return <ActivityEventBody entry={entry} />;
@@ -408,7 +409,7 @@ function EntryFrame({
   viewer: ViewerIdentity | null;
   totalEntries: number | null;
   isSubagentTrack: boolean;
-  onOpenTrack(trackId: string): void;
+  onOpenTrack: ((trackId: string) => void) | undefined;
 }) {
   const presentation = entryPresentation(entry, relatedToolCall, isSubagentTrack);
   return (
@@ -946,6 +947,7 @@ function DetailsRail({
   liveState,
   traceOrder,
   shareUrl,
+  sharedView,
   activeFilters,
   activeToolFilters,
   activeActivityFilters,
@@ -964,6 +966,7 @@ function DetailsRail({
   liveState: LiveState;
   traceOrder: TraceOrder;
   shareUrl: string;
+  sharedView: boolean;
   activeFilters: ReadonlySet<EntryFilter>;
   activeToolFilters: ReadonlySet<ToolIntent>;
   activeActivityFilters: ReadonlySet<ActivityKind>;
@@ -1119,7 +1122,11 @@ function DetailsRail({
             Latest first
           </button>
         </div>
-        <CopyButton value={shareUrl} label="Copy link" className="rail-share-button" />
+        <CopyButton value={shareUrl} label="Copy session link" className="rail-share-button" />
+        <p className="share-scope-note">
+          <Icon name="link" size="xs" />
+          {sharedView ? "Session-only view · library excluded" : "Opens this session without the local library"}
+        </p>
       </section>
     </aside>
   );
@@ -1127,6 +1134,14 @@ function DetailsRail({
 
 function readTrackFromLocation(): string | null {
   return new URLSearchParams(window.location.search).get("track");
+}
+
+function readLibraryCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem("tracks.library-collapsed") === "true";
+  } catch {
+    return false;
+  }
 }
 
 export function App() {
@@ -1145,6 +1160,8 @@ export function App() {
   const [activeFilters, setActiveFilters] = useState<Set<EntryFilter>>(readFiltersFromLocation);
   const [activeToolFilters, setActiveToolFilters] = useState<Set<ToolIntent>>(readToolFiltersFromLocation);
   const [activeActivityFilters, setActiveActivityFilters] = useState<Set<ActivityKind>>(readActivityFiltersFromLocation);
+  const [sharedView] = useState(() => isSessionShareUrl(window.location.href));
+  const [libraryCollapsed, setLibraryCollapsed] = useState(readLibraryCollapsed);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [trackError, setTrackError] = useState<string | null>(null);
@@ -1221,9 +1238,21 @@ export function App() {
   }, [query]);
 
   useEffect(() => {
+    if (sharedView) {
+      setLibrary(null);
+      return;
+    }
     setLibrary(null);
     void loadLibrary();
-  }, [loadLibrary]);
+  }, [loadLibrary, sharedView]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("tracks.library-collapsed", String(libraryCollapsed));
+    } catch {
+      // The viewer still works when browser storage is unavailable.
+    }
+  }, [libraryCollapsed]);
 
   useEffect(() => {
     void getViewerIdentity().then(setViewer).catch(() => setViewer(null));
@@ -1279,23 +1308,27 @@ export function App() {
           }
         }
         void Promise.all([
-          getTrackLibrary({ query: libraryQuery, limit: LIBRARY_PAGE_SIZE }),
+          sharedView
+            ? Promise.resolve(null)
+            : getTrackLibrary({ query: libraryQuery, limit: LIBRARY_PAGE_SIZE }),
           trackUpdate,
         ]).then(([nextLibrary, nextTrack]) => {
           if (closed) return;
-          setLibrary((loaded) => {
-            if (!loaded) return nextLibrary;
-            const headIds = new Set(nextLibrary.tracks.map((item) => item.id));
-            const tracks = [
-              ...nextLibrary.tracks,
-              ...loaded.tracks.filter((item) => !headIds.has(item.id)),
-            ].slice(0, Math.max(loaded.tracks.length, nextLibrary.tracks.length));
-            return {
-              ...nextLibrary,
-              tracks,
-              nextOffset: tracks.length < nextLibrary.total ? tracks.length : null,
-            };
-          });
+          if (nextLibrary) {
+            setLibrary((loaded) => {
+              if (!loaded) return nextLibrary;
+              const headIds = new Set(nextLibrary.tracks.map((item) => item.id));
+              const tracks = [
+                ...nextLibrary.tracks,
+                ...loaded.tracks.filter((item) => !headIds.has(item.id)),
+              ].slice(0, Math.max(loaded.tracks.length, nextLibrary.tracks.length));
+              return {
+                ...nextLibrary,
+                tracks,
+                nextOffset: tracks.length < nextLibrary.total ? tracks.length : null,
+              };
+            });
+          }
           if (nextTrack && selectedIdRef.current === trackId) {
             setTrack((loaded) => {
               if (!loaded || loaded.summary.id !== trackId) return nextTrack;
@@ -1319,12 +1352,12 @@ export function App() {
       events.close();
       if (liveRefreshTimer.current) clearTimeout(liveRefreshTimer.current);
     };
-  }, []);
+  }, [sharedView]);
 
   useEffect(() => {
     const url = new URL(window.location.href);
     url.searchParams.set("view", mode);
-    if (sidebarGroup === "project") url.searchParams.set("group", "project");
+    if (!sharedView && sidebarGroup === "project") url.searchParams.set("group", "project");
     else url.searchParams.delete("group");
     if (traceOrder === "latest") url.searchParams.set("order", "latest");
     else url.searchParams.delete("order");
@@ -1353,11 +1386,11 @@ export function App() {
       }
     }
     window.history.replaceState(null, "", url);
-  }, [activeActivityFilters, activeFilters, activeToolFilters, mode, sidebarGroup, traceOrder]);
+  }, [activeActivityFilters, activeFilters, activeToolFilters, mode, sharedView, sidebarGroup, traceOrder]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "/" && !(event.target instanceof HTMLInputElement)) {
+      if (!sharedView && event.key === "/" && !(event.target instanceof HTMLInputElement)) {
         event.preventDefault();
         searchRef.current?.focus();
       }
@@ -1365,7 +1398,7 @@ export function App() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [sharedView]);
 
   useEffect(() => {
     if (!selectedId) {
@@ -1622,25 +1655,47 @@ export function App() {
     window.history.replaceState(null, "", url);
   }
 
+  function openLibrary() {
+    setLibraryCollapsed(false);
+    setSidebarOpen(true);
+  }
+
+  function closeOrCollapseLibrary() {
+    if (window.matchMedia("(max-width: 800px)").matches) {
+      setSidebarOpen(false);
+      return;
+    }
+    setLibraryCollapsed(true);
+  }
+
   const selectedSummary = library?.tracks.find((item) => item.id === selectedId)
     ?? (track?.summary.id === selectedId ? track.summary : null);
+  const sessionShareUrl = track
+    ? createSessionShareUrl(window.location.href, track.summary.id)
+    : null;
 
   return (
-    <div className="app-shell" data-sidebar-open={sidebarOpen}>
-      <button
-        className="sidebar-scrim"
-        type="button"
-        aria-label="Close session library"
-        onClick={() => setSidebarOpen(false)}
-      />
-      <aside className="library-panel">
+    <div
+      className="app-shell"
+      data-sidebar-open={sidebarOpen}
+      data-library-collapsed={libraryCollapsed}
+      data-shared-view={sharedView}
+    >
+      {!sharedView ? <>
+        <button
+          className="sidebar-scrim"
+          type="button"
+          aria-label="Close session library"
+          onClick={() => setSidebarOpen(false)}
+        />
+        <aside className="library-panel">
         <header className="library-header">
           <div className="brand-lockup">
             <span className="brand-mark"><Icon name="brand" size="sm" /></span>
             <span>Tracks</span>
             <span className="local-badge">Local</span>
           </div>
-          <IconButton label="Close session library" icon="close" onClick={() => setSidebarOpen(false)} />
+          <IconButton label="Collapse session library" icon="sidebar" onClick={closeOrCollapseLibrary} />
         </header>
         <div className="search-wrap">
           <Icon name="search" size="sm" />
@@ -1702,14 +1757,15 @@ export function App() {
           <span><span className={`health-dot live-${liveState}`} />{liveState === "live" ? "Live updates" : liveState === "reconnecting" ? "Reconnecting" : "Connecting"}</span>
           <span>{library ? `${library.total.toLocaleString()} sessions` : "—"}</span>
         </footer>
-      </aside>
+        </aside>
+      </> : null}
 
       <main className="workspace">
         <header className="workspace-header">
           <div className="workspace-identity">
-            <IconButton label="Open session library" icon="sidebar" onClick={() => setSidebarOpen(true)} />
+            {!sharedView ? <IconButton label="Expand session library" icon="sidebar" onClick={openLibrary} /> : null}
             <div className="breadcrumb">
-              <span>{selectedSummary?.projectLabel ?? "Session library"}</span>
+              <span>{sharedView ? "Shared session" : selectedSummary?.projectLabel ?? "Session library"}</span>
               {selectedSummary ? <><span aria-hidden="true">/</span><strong title={selectedSummary.title}>{selectedSummary.title}</strong></> : null}
             </div>
           </div>
@@ -1726,12 +1782,17 @@ export function App() {
                 onClear={() => setTraceQuery("")}
               />
             ) : null}
-            {track ? <CopyButton value={window.location.href} label="Copy link" className="mobile-share-button" /> : null}
+            {sessionShareUrl ? <CopyButton value={sessionShareUrl} label="Copy session link" className="mobile-share-button" /> : null}
           </div>
         </header>
 
         <div className="workspace-body" data-mode={mode}>
           <section className="track-column" aria-busy={loadingTrack}>
+            {!selectedId && sharedView ? (
+              <EmptyPanel icon="link" title="This session link is incomplete">
+                Open a link that includes one exact session.
+              </EmptyPanel>
+            ) : null}
             {!selectedId && library?.sourceState === "missing" ? (
               <EmptyPanel icon="project" title="Claude sessions were not found">
                 Install or run Claude Code, or start Tracks with an explicit <code>--source</code> directory.
@@ -1771,7 +1832,7 @@ export function App() {
                         <span>{track.summary.providerLabel}</span>
                       </span>
                       <span>{formatBytes(track.summary.sourceBytes)}</span>
-                      {track.summary.parentTrackId ? (
+                      {track.summary.parentTrackId && !sharedView ? (
                         <button
                           className="parent-session-link"
                           type="button"
@@ -1811,7 +1872,7 @@ export function App() {
                         viewer={viewer}
                         totalEntries={track.summary.entryCount}
                         isSubagentTrack={Boolean(track.summary.parentTrackId)}
-                        onOpenTrack={selectTrack}
+                        onOpenTrack={sharedView ? undefined : selectTrack}
                       />
                     ))}
                     {traceSearchResult.entries.length === 0 ? (
@@ -1873,7 +1934,8 @@ export function App() {
               mode={mode}
               liveState={liveState}
               traceOrder={traceOrder}
-              shareUrl={window.location.href}
+              shareUrl={sessionShareUrl!}
+              sharedView={sharedView}
               activeFilters={activeFilters}
               activeToolFilters={activeToolFilters}
               activeActivityFilters={activeActivityFilters}

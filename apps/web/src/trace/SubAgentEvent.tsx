@@ -22,7 +22,7 @@ export function SubAgentEventBody({
   onOpenTrack,
 }: {
   entry: SubAgentEntry;
-  onOpenTrack(trackId: string): void;
+  onOpenTrack: ((trackId: string) => void) | undefined;
 }) {
   return (
     <div className="subagent-entry-card" data-status={entry.status}>
@@ -38,12 +38,12 @@ export function SubAgentEventBody({
         <span>{entry.durationMs !== null && entry.durationMs !== undefined
           ? durationLabel(entry.durationMs)
           : "Linked Claude work"}</span>
-        {entry.childTrackId ? (
+        {entry.childTrackId && onOpenTrack ? (
           <button type="button" onClick={() => onOpenTrack(entry.childTrackId!)}>
             Open transcript
             <Icon name="link" size="xs" />
           </button>
-        ) : <span>Transcript unavailable</span>}
+        ) : <span>{entry.childTrackId ? "Transcript not included" : "Transcript unavailable"}</span>}
       </footer>
     </div>
   );

@@ -80,6 +80,8 @@ The shell remains visually quiet. It does not show aggregate charts unless a lat
 
 Primary job: locate the session a user wants to inspect.
 
+The local library can be collapsed from its top bar and restored from the sticky workspace header. This is an immediate structural state change rather than a decorative drawer animation on desktop; the existing overlay transition remains for narrow screens.
+
 Required controls:
 
 - Search across title, project, path, message text, tool names, and model.
@@ -175,6 +177,8 @@ Filtering should not destroy scroll position. When the selected entry is filtere
 Full view separates broad evidence controls from provider-neutral activity facets. Skills, MCP, Channels, Hooks, memory, and interactive commands each have an independent rectangular filter with a loaded-slice count. Activity controls own their related call/result pair or inbound/status event, while ordinary tool-operation filters continue to govern non-activity file, shell, search, agent, and integration tools. This prevents a Skill invocation from being hidden behind both “Other tool” and “Status” switches.
 
 The track search field lives in the sticky workspace header rather than the wide-only details rail. This keeps it reachable while reading long tracks and at breakpoints where the rail is hidden. Search terms are ephemeral local UI state and are not added to copied session URLs. Match counts explicitly describe the loaded projection; when later pages remain, the track provides a “Search more entries” continuation instead of silently materializing the complete source in browser memory.
+
+Copying the session link adds an explicit session-only presentation mode. That mode retains the track and details rail, omits the local library from both rendering and catalog requests, and labels linked parent/sub-agent transcripts as not included. It remains visibly distinct from ShareFlow: the local link is not a sanitized bundle and does not grant network access.
 
 ### InfiniteLoadSentinel
 

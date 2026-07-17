@@ -395,7 +395,7 @@ function AgentCall({
   entry: ToolCallEntry;
   input: UnknownRecord | null;
   relatedSubAgent: SubAgentEntry | undefined;
-  onOpenTrack(trackId: string): void;
+  onOpenTrack: ((trackId: string) => void) | undefined;
 }) {
   const objective = stringValue(input, "description", "prompt") ?? relatedSubAgent?.objective;
   const agentType = relatedSubAgent?.label ?? stringValue(input, "subagent_type", "agent_type") ?? "Sub-agent";
@@ -411,12 +411,12 @@ function AgentCall({
         <TechnicalLabel entry={entry} />
         <div className="agent-call-actions">
           <RawArguments input={entry.input} />
-          {childTrackId ? (
+          {childTrackId && onOpenTrack ? (
             <button type="button" onClick={() => onOpenTrack(childTrackId)}>
               Open transcript
               <Icon name="link" size="xs" />
             </button>
-          ) : <span>Transcript pending</span>}
+          ) : <span>{childTrackId ? "Transcript not included" : "Transcript pending"}</span>}
         </div>
       </footer>
     </div>
@@ -473,7 +473,7 @@ export function ToolCallBody({
 }: {
   entry: ToolCallEntry;
   relatedSubAgent: SubAgentEntry | undefined;
-  onOpenTrack(trackId: string): void;
+  onOpenTrack: ((trackId: string) => void) | undefined;
 }) {
   const input = asRecord(entry.input);
   if (entry.activity?.kind === "skill" || entry.activity?.kind === "mcp" || entry.activity?.kind === "memory") {

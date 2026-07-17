@@ -204,6 +204,7 @@ Publishing is a separate boundary after export:
 - A returned URL is labeled local, public, direct-link, or authenticated/private according to the destination's actual enforcement.
 - Local publisher receipts and share definitions are user-owned metadata. Remote revoke/delete is verified separately and never inferred from local deletion.
 - Non-loopback preview/hosting requires explicit authentication and threat review; copying an ordinary local link does not enable network access.
+- A copied local session link uses a session-only presentation: the browser does not request or render the local catalog, and parent/sub-agent transcript navigation is disabled unless those revisions are explicitly included. This is a UI/data-minimization boundary, not a sanitized export or access-control mechanism.
 
 ## Security verification
 
