@@ -127,6 +127,8 @@ Make the vertical slice reliable enough for daily personal use.
 
 ## Phase 3 — Connected devices and live sharing
 
+**Current vertical slice (July 2026):** the single background agent, bootstrap-token connection, online-device dashboard/viewer, bounded library/track relay, catalog invalidations, per-session capability links, offline state, and hardened single-container bootstrap are implemented and covered by process-level E2E tests. The work list below remains the full production exit bar; browser/device authorization, project scopes, revoke/expiry, cancellation, rate/load testing, and multi-instance routing are still open.
+
 ### Objective
 
 Add the optional hosted server web experience without turning Tracks into a session-storage service or weakening the local product.

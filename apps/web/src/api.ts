@@ -11,9 +11,69 @@ export interface TrackLibraryResponse extends TrackLibrary {
   nextOffset: number | null;
 }
 
-async function fetchJson(path: string, signal?: AbortSignal): Promise<unknown> {
+export type TracksSurface = "local" | "cloud-device" | "live-share";
+
+export interface RuntimeContext {
+  surface: TracksSurface;
+  online: boolean;
+  trackId?: string;
+  deviceId?: string;
+  deviceName?: string | null;
+  remote?: {
+    configured: boolean;
+    connected: boolean;
+    serverUrl: string | null;
+    deviceId: string | null;
+    lastError: string | null;
+  };
+}
+
+interface ApiRoute {
+  base: string;
+  headers: Record<string, string>;
+  surface: TracksSurface;
+}
+
+function apiRoute(): ApiRoute {
+  const deviceMatch = window.location.pathname.match(/^\/device\/([^/]+)/);
+  if (deviceMatch) {
+    const token = window.sessionStorage.getItem("tracks-cloud-token") ?? "";
+    return {
+      base: `/api/devices/${encodeURIComponent(decodeURIComponent(deviceMatch[1]!))}`,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      surface: "cloud-device",
+    };
+  }
+  const shareMatch = window.location.pathname.match(/^\/s\/([^/]+)/);
+  if (shareMatch) {
+    const secret = decodeURIComponent(window.location.hash.replace(/^#/, ""));
+    return {
+      base: `/api/shares/${encodeURIComponent(decodeURIComponent(shareMatch[1]!))}`,
+      headers: secret ? { "X-Tracks-Share-Token": secret } : {},
+      surface: "live-share",
+    };
+  }
+  return { base: "/api", headers: {}, surface: "local" };
+}
+
+function apiPath(path: string): string {
+  return `${apiRoute().base}${path}`;
+}
+
+async function fetchJson(
+  path: string,
+  signal?: AbortSignal,
+  init: Pick<RequestInit, "method" | "body"> = {},
+): Promise<unknown> {
+  const route = apiRoute();
   const response = await fetch(path, {
-    headers: { Accept: "application/json" },
+    ...init,
+    headers: {
+      Accept: "application/json",
+      ...route.headers,
+      ...(init.body ? { "Content-Type": "application/json" } : {}),
+    },
+    cache: "no-store",
     ...(signal ? { signal } : {}),
   });
 
@@ -25,6 +85,22 @@ async function fetchJson(path: string, signal?: AbortSignal): Promise<unknown> {
     throw new Error(message);
   }
   return value;
+}
+
+export async function getRuntimeContext(): Promise<RuntimeContext> {
+  const route = apiRoute();
+  const value = await fetchJson(`${route.base}/context`);
+  if (!value || typeof value !== "object") throw new Error("Tracks returned an invalid runtime context.");
+  const record = value as Record<string, unknown>;
+  const surface = record.surface === "cloud-device" || record.surface === "live-share"
+    ? record.surface
+    : "local";
+  const context = record as unknown as Partial<RuntimeContext>;
+  return {
+    ...context,
+    surface,
+    online: record.online !== false,
+  };
 }
 
 export async function getTrackLibrary(options: {
@@ -39,7 +115,7 @@ export async function getTrackLibrary(options: {
   });
   if (options.refresh) query.set("refresh", "1");
   if (options.query?.trim()) query.set("q", options.query.trim());
-  const value = await fetchJson(`/api/tracks?${query}`);
+  const value = await fetchJson(`${apiPath("/tracks")}?${query}`);
   const parsed = TrackLibrarySchema.safeParse(value);
   if (!parsed.success) {
     throw new Error("The local service returned an invalid track library.");
@@ -79,7 +155,7 @@ export async function getTrackPage(
   if (options.beforeSequence !== undefined) query.set("before", String(options.beforeSequence));
   else query.set("start", String(options.startSequence ?? 0));
   const value = await fetchJson(
-    `/api/tracks/${encodeURIComponent(trackId)}?${query}`,
+    `${apiPath("/tracks")}/${encodeURIComponent(trackId)}?${query}`,
     options.signal,
   );
   const parsed = TrackSchema.safeParse(value);
@@ -97,7 +173,7 @@ export interface ViewerIdentity {
 }
 
 export async function getViewerIdentity(): Promise<ViewerIdentity> {
-  const value = await fetchJson("/api/viewer");
+  const value = await fetchJson(apiPath("/viewer"));
   if (!value || typeof value !== "object") {
     throw new Error("The local service returned an invalid viewer identity.");
   }
@@ -108,4 +184,85 @@ export async function getViewerIdentity(): Promise<ViewerIdentity> {
     avatarUrl: typeof record.avatarUrl === "string" ? record.avatarUrl : null,
     source: record.source === "github-cli" ? "github-cli" : "fallback",
   };
+}
+
+export async function createLiveSessionShare(trackId: string): Promise<{ url: string }> {
+  const route = apiRoute();
+  if (route.surface === "live-share") throw new Error("A live share cannot create another share.");
+  const value = await fetchJson(`${route.base}/shares`, undefined, {
+    method: "POST",
+    body: JSON.stringify({ trackId }),
+  });
+  if (!value || typeof value !== "object") throw new Error("Tracks returned an invalid live link.");
+  const record = value as Record<string, unknown>;
+  if (typeof record.url === "string") return { url: record.url };
+  if (typeof record.path === "string" && typeof record.viewerSecret === "string") {
+    const url = new URL(record.path, window.location.origin);
+    url.hash = record.viewerSecret;
+    return { url: url.toString() };
+  }
+  throw new Error("Tracks returned an incomplete live link.");
+}
+
+export interface LiveEvent {
+  event: string;
+  data: unknown;
+}
+
+export async function subscribeToLiveEvents(options: {
+  signal: AbortSignal;
+  onOpen(): void;
+  onEvent(event: LiveEvent): void;
+  onError(): void;
+}): Promise<void> {
+  const route = apiRoute();
+  while (!options.signal.aborted) {
+    try {
+      const response = await fetch(`${route.base}/events`, {
+        headers: { Accept: "text/event-stream", ...route.headers },
+        cache: "no-store",
+        signal: options.signal,
+      });
+      if (!response.ok || !response.body) throw new Error(`Live stream failed with ${response.status}`);
+      options.onOpen();
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (!options.signal.aborted) {
+        const result = await reader.read();
+        if (result.done) break;
+        buffer += decoder.decode(result.value, { stream: true });
+        let boundary = buffer.indexOf("\n\n");
+        while (boundary >= 0) {
+          const block = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          let event = "message";
+          const data: string[] = [];
+          for (const line of block.split("\n")) {
+            if (line.startsWith("event:")) event = line.slice(6).trim();
+            if (line.startsWith("data:")) data.push(line.slice(5).trim());
+          }
+          if (data.length > 0) {
+            const raw = data.join("\n");
+            let parsed: unknown = raw;
+            try { parsed = JSON.parse(raw); } catch { /* Keep textual event data. */ }
+            options.onEvent({ event, data: parsed });
+          }
+          boundary = buffer.indexOf("\n\n");
+        }
+      }
+    } catch {
+      if (options.signal.aborted) return;
+      options.onError();
+    }
+    if (!options.signal.aborted) {
+      await new Promise<void>((resolve) => {
+        const timeout = window.setTimeout(resolve, 1_500);
+        options.signal.addEventListener("abort", () => {
+          window.clearTimeout(timeout);
+          resolve();
+        }, { once: true });
+      });
+    }
+  }
 }

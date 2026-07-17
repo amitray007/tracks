@@ -10,7 +10,7 @@ Tracks has three web surfaces that reuse the same normalized track renderers but
 | Server web | On a self-hosted Tracks Server | Authenticated devices currently connected to that server | Requested from an online device |
 | Live share | On Tracks Server at one unguessable share URL | Only the explicitly shared session or project selection | Requested from the sharing device while it is online |
 
-The hosted server is a rendezvous and relay, not a session database. It MUST NOT persist provider files, normalized transcripts, search text, artifacts, or session lists. The first server scaffold persists nothing at all: device presence lives in process memory and disappears on restart.
+The hosted server is a rendezvous and relay, not a session database. It MUST NOT persist provider files, normalized transcripts, search text, artifacts, or session lists. The current single-process server persists nothing: device presence and share-routing records live in process memory and disappear on restart.
 
 Static sanitized bundles remain a separate sharing mode. They are durable snapshots that continue to work while the source device is offline; live shares deliberately do not.
 
@@ -55,18 +55,21 @@ The protocol separates small control messages from potentially large session dat
 
 The data plane is request-driven. A device MUST NOT upload its complete library or continually mirror active transcripts merely because it connected. Responses have strict byte/entry limits and expire after delivery. A future multi-process deployment may use an ephemeral broker for request routing, but a queue or cache must not silently become transcript storage.
 
-## Current foundation
+## Current implementation
 
-`packages/live-protocol` contains protocol v1 schemas for agent hello, heartbeat, server welcome/error, device capabilities, and the connected-device projection. `apps/cloud` implements:
+`packages/live-protocol` contains protocol v1 schemas for agent hello/heartbeat, bounded library and track requests, correlated responses, invalidations, share creation, server errors, and the connected-device projection. `apps/cloud` implements:
 
 - An authenticated WebSocket agent endpoint at `/api/agent`.
 - In-memory device presence with replacement and heartbeat handling.
-- An authenticated bounded device API at `/api/devices`.
-- An authenticated SSE presence stream at `/api/events`.
-- A minimal server dashboard and an unauthenticated health endpoint.
-- A 64 KiB ceiling for the current control socket.
+- Authenticated, request-driven library and track relay under `/api/devices/:deviceId`.
+- Per-device request concurrency limits, request timeouts, entry/page bounds, and a 4 MiB socket ceiling.
+- Authenticated presence SSE plus per-device/share invalidation streams.
+- A server dashboard and full React device viewer that enumerate only currently connected devices.
+- In-memory per-session live links with a random UUID and separate 256-bit fragment secret.
+- A share viewer that cannot enumerate the source device library and reports a deliberate offline state.
+- An unauthenticated health endpoint and a container image containing the hosted web assets.
 
-This slice intentionally stops before session relay, account login, share creation, or durable control-plane metadata. `TRACKS_CLOUD_TOKEN` is a deployment bootstrap mechanism for self-hosted development, not the final user authentication design.
+`apps/cli` implements the complementary single-agent lifecycle: `web`, `login`, `connect`, `config`, and `status`; one source watcher/index serves both local and remote requests; reconnect uses bounded exponential backoff with jitter. `TRACKS_CLOUD_TOKEN` is a self-hosted bootstrap credential, not the final multi-account authentication design. It is stored in a user-only `0600` config file in this slice; production device credentials still require OS credential storage and short-lived connection tokens.
 
 ## Identity and links
 
@@ -76,7 +79,7 @@ Live share URLs should use a stable random share ID plus a separate high-entropy
 
     https://tracks.example/s/<share-id>#<viewer-secret>
 
-The fragment keeps the viewer secret out of ordinary HTTP access logs. The server stores only the minimum durable control record needed to route and revoke a share: account/device ownership, opaque local resource handle, policy, expiry, and a hash of the viewer secret. It does not store the session title or transcript. If the product chooses a strictly zero-durable-state server, the same record can instead be signed into an expiring capability token, at the cost of weaker immediate revocation. That choice requires an ADR before public sharing ships.
+The fragment keeps the viewer secret out of ordinary HTTP access logs. The current server stores only an in-memory routing record: share ID, device ID, opaque track ID, creation time, and a hash of the viewer secret. It does not store the session title or transcript, and restart invalidates the link. The production control plane still needs an ADR choosing either minimal durable routing metadata with immediate revocation or signed expiring capabilities with no durable share state.
 
 Opening a live link while its source device is disconnected returns a deliberate empty state: the session remains on its device, the link is valid, and the viewer may retry or wait for reconnection. It never falls back to an old server-side copy. A user who needs offline availability creates a reviewed static share instead.
 
@@ -106,30 +109,37 @@ Credentials are user-owned local data stored through the OS credential store whe
 
 ## CLI and daemon shape
 
-`tracks web` and `tracks connect` should be two responsibilities inside one lightweight background agent, not two competing daemons:
+`tracks web` and `tracks connect` are two responsibilities inside one lightweight background agent, not two competing daemons:
 
 - The local web module owns loopback HTTP, indexing, watching, and browser launch.
 - The connection module owns authentication refresh, reconnect with jitter, and the server WebSocket.
-- Either module may be enabled independently.
+- Local web can run independently; the remote module is enabled only after login/connect.
 - A single lock/state file prevents duplicate index writers and duplicate device connections.
 - `tracks status` reports local web and remote connection state separately.
 
-Auto-start is a configuration choice, initially off. Enabling it installs a user-level service through an explicit web workflow or CLI confirmation. A connection failure never stops local watching or local viewing.
+Auto-start remains off and is not installed by this slice. A connection failure never stops local watching or local viewing.
 
 ## Deployment
 
-The repository root `compose.yaml` builds `apps/cloud` as a non-root, read-only container, publishes it on loopback by default, and mounts no data volume. It is an intentionally single-process bootstrap deployment.
+The repository root `compose.yaml` builds `apps/cloud` together with the hosted React viewer, runs it as the non-root `node` user with a read-only root filesystem and dropped capabilities, publishes it on loopback by default, and mounts no data volume. It is an intentionally single-process bootstrap deployment.
+
+~~~sh
+cp .env.example .env
+# Replace the placeholder with: openssl rand -hex 32
+docker compose up --build -d
+curl --fail http://127.0.0.1:8787/api/health
+~~~
 
 For internet exposure, operators must put it behind HTTPS/WSS, configure origin and proxy limits, replace the bootstrap token with production authentication, and decide how the minimal account/share control plane is stored. Adding a database is not permission to store session content.
 
 ## Delivery sequence
 
-1. Presence foundation: versioned protocol, in-memory server, dashboard, health, container deployment.
-2. Local agent lifecycle: `web`, `status`, `config`, one watcher, background process state.
-3. Authentication and connection: `login`, device grant, `connect`, reconnect, owner device dashboard.
-4. Read-only relay: bounded library and track pages, request cancellation, revision invalidation, server-side device view.
-5. Scoped live shares: per-session/project capability, offline state, revoke/expiry, viewer isolation.
-6. Hardening: TLS deployment guide, rate limits, audit metadata without content, multi-instance ephemeral routing, load and abuse tests.
-7. Offline sharing: polished reviewed static bundles remain available alongside live sharing.
+1. **Implemented:** presence foundation, versioned protocol, in-memory server, dashboard, health, and container deployment.
+2. **Implemented:** local agent lifecycle with `web`, `status`, `config`, one watcher, and background process state.
+3. **Bootstrap implemented:** token login, outbound `connect`, reconnect, and owner device dashboard. Browser device grant and account authorization remain.
+4. **Implemented for library/track reads:** bounded pages, timeouts, concurrency backpressure, invalidations, and server-side device view. Explicit cancellation and artifact ranges remain.
+5. **Implemented for one session:** capability link, viewer isolation, and offline state. Project selection, revoke, expiry, and durable control metadata remain.
+6. **Remaining:** TLS deployment guide, rate limits, content-free audit metadata, multi-instance ephemeral routing, and load/abuse tests.
+7. **Remaining:** polished reviewed static bundles alongside live sharing.
 
 At every phase, a network capture and server filesystem inspection should be able to demonstrate that no unrequested session content was mirrored or retained.

@@ -31,11 +31,27 @@ export interface TracksServerOptions {
   port?: number;
   sourceRoot?: string;
   staticDirectory?: string | false;
+  onCatalogUpdated?(event: { changedFile: string | null; scannedAt: string; total: number }): void;
+}
+
+export interface RemoteConnectionSnapshot {
+  configured: boolean;
+  connected: boolean;
+  serverUrl: string | null;
+  deviceId: string | null;
+  lastError: string | null;
+}
+
+export interface TracksRemoteBridge {
+  snapshot(): RemoteConnectionSnapshot;
+  createSessionShare(trackId: string): Promise<{ url: string }>;
 }
 
 export interface RunningTracksServer {
   url: string;
   catalog: TrackCatalog;
+  setRemoteBridge(bridge: TracksRemoteBridge | null): void;
+  notifyRemoteUpdated(): void;
   close(): Promise<void>;
 }
 
@@ -83,6 +99,23 @@ function readInteger(value: string | null, fallback: number): number {
   if (!value) return fallback;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+async function readJsonBody(request: IncomingMessage, maximumBytes = 8 * 1024): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const chunk of request) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    total += buffer.byteLength;
+    if (total > maximumBytes) throw new Error("Request body is too large.");
+    chunks.push(buffer);
+  }
+  if (chunks.length === 0) return {};
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    throw new Error("Request body must be valid JSON.");
+  }
 }
 
 async function serveStatic(
@@ -141,10 +174,16 @@ export async function startTracksServer(
   let eventSequence = 0;
   let refreshTimer: ReturnType<typeof setTimeout> | null = null;
   let sourceWatcher: FSWatcher | null = null;
+  let remoteBridge: TracksRemoteBridge | null = null;
 
   function sendEvent(event: string, value: unknown): void {
     const payload = `id: ${++eventSequence}\nevent: ${event}\ndata: ${JSON.stringify(value)}\n\n`;
-    for (const client of eventClients) client.write(payload);
+    for (const client of eventClients) {
+      if (!client.write(payload)) {
+        eventClients.delete(client);
+        client.end();
+      }
+    }
   }
 
   function scheduleCatalogRefresh(filename: string | Buffer | null): void {
@@ -153,11 +192,13 @@ export async function startTracksServer(
       refreshTimer = null;
       void catalog.refresh().then((nextLibrary) => {
         const changedFile = filename ? basename(filename.toString()) : null;
-        sendEvent("catalog.updated", {
+        const update = {
           changedFile,
           scannedAt: nextLibrary.scannedAt,
           total: nextLibrary.tracks.length,
-        });
+        };
+        sendEvent("catalog.updated", update);
+        options.onCatalogUpdated?.(update);
       }).catch(() => {
         sendEvent("catalog.error", { message: "The Claude session library could not be refreshed." });
       });
@@ -213,6 +254,47 @@ export async function startTracksServer(
           trackCount: library.total,
           scannedAt: library.scannedAt,
         });
+        return;
+      }
+
+      if (requestUrl.pathname === "/api/context") {
+        sendJson(response, 200, {
+          surface: "local",
+          online: true,
+          remote: remoteBridge?.snapshot() ?? {
+            configured: false,
+            connected: false,
+            serverUrl: null,
+            deviceId: null,
+            lastError: null,
+          },
+        });
+        return;
+      }
+
+      if (requestUrl.pathname === "/api/shares" && request.method === "POST") {
+        const body = await readJsonBody(request);
+        const trackId = typeof body === "object" && body && "trackId" in body
+          ? String(body.trackId)
+          : "";
+        if (!trackId || trackId.length > 512) {
+          sendJson(response, 400, { error: "A valid trackId is required." });
+          return;
+        }
+        if (!remoteBridge?.snapshot().connected) {
+          sendJson(response, 503, {
+            error: "Connect this device to Tracks Server before creating a live link.",
+            code: "not_connected",
+          });
+          return;
+        }
+        try {
+          sendJson(response, 201, await remoteBridge.createSessionShare(trackId));
+        } catch (error) {
+          sendJson(response, 502, {
+            error: error instanceof Error ? error.message : "Live link creation failed.",
+          });
+        }
         return;
       }
 
@@ -316,6 +398,13 @@ export async function startTracksServer(
   return {
     url: `http://${host}:${address.port}`,
     catalog,
+    setRemoteBridge(bridge) {
+      remoteBridge = bridge;
+      sendEvent("remote.updated", remoteBridge?.snapshot() ?? null);
+    },
+    notifyRemoteUpdated() {
+      sendEvent("remote.updated", remoteBridge?.snapshot() ?? null);
+    },
     close: () => {
       if (refreshTimer) clearTimeout(refreshTimer);
       clearInterval(heartbeat);

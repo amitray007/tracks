@@ -1082,6 +1082,7 @@ code, pre, kbd {
 
 .copy-button:hover { color: #c6c8cb; background: rgba(255, 255, 255, 0.045); }
 .copy-button[data-copied="true"] { color: var(--success); }
+.copy-button[data-local-fallback="true"] { color: #d8b26c; }
 .copy-button.mobile-share-button { display: none; }
 .copy-button.rail-share-button {
   width: 100%;
@@ -1110,6 +1111,7 @@ code, pre, kbd {
 }
 
 .share-scope-note svg { flex: 0 0 auto; color: #777b82; }
+.live-share-offline { margin: 0 0 16px; }
 .entry-copy { opacity: 0; }
 .entry:hover .entry-copy,
 .entry:focus-within .entry-copy,

@@ -213,4 +213,30 @@ describe("Tracks loopback server", () => {
     expect(received).toContain('"changedFile":"session.jsonl"');
     await reader.cancel();
   });
+
+  it("exposes remote state and creates live links only through the configured bridge", async () => {
+    const sourceRoot = await createSource();
+    const server = await startTracksServer({ sourceRoot, staticDirectory: false });
+    servers.push(server);
+    server.setRemoteBridge({
+      snapshot: () => ({
+        configured: true,
+        connected: true,
+        serverUrl: "https://tracks.example",
+        deviceId: "019d2c64-2526-7f8a-b289-a1f9ad67c807",
+        lastError: null,
+      }),
+      createSessionShare: async (trackId) => ({ url: `https://tracks.example/s/live#${trackId}` }),
+    });
+
+    const context = await fetch(`${server.url}/api/context`).then((response) => response.json());
+    expect(context).toMatchObject({ surface: "local", remote: { connected: true } });
+    const share = await fetch(`${server.url}/api/shares`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ trackId: "claude:test:session" }),
+    });
+    expect(share.status).toBe(201);
+    expect(await share.json()).toEqual({ url: "https://tracks.example/s/live#claude:test:session" });
+  });
 });

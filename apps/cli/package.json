@@ -9,11 +9,20 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "pnpm --filter @tracks/cloud build && pnpm --filter @tracks/server build && pnpm build && vitest run"
   },
   "dependencies": {
+    "@tracks/live-protocol": "workspace:*",
     "@tracks/provider-claude-code": "workspace:*",
     "@tracks/server": "workspace:*",
-    "open": "11.0.0"
+    "open": "11.0.0",
+    "ws": "8.21.1"
+  },
+  "devDependencies": {
+    "@tracks/cloud": "workspace:*",
+    "@tracks/core-model": "workspace:*",
+    "@types/ws": "8.18.1",
+    "vitest": "4.1.10"
   }
 }

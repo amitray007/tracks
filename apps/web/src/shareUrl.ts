@@ -2,8 +2,9 @@ export const SESSION_SHARE_MODE = "session";
 
 export function isSessionShareUrl(value: string): boolean {
   const url = new URL(value);
-  return url.searchParams.get("share") === SESSION_SHARE_MODE
-    && Boolean(url.searchParams.get("track"));
+  return /^\/s\/[^/]+\/?$/.test(url.pathname)
+    || (url.searchParams.get("share") === SESSION_SHARE_MODE
+      && Boolean(url.searchParams.get("track")));
 }
 
 export function createSessionShareUrl(value: string, trackId: string): string {

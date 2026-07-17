@@ -19,8 +19,11 @@ import type {
 import {
   getTrackPage,
   getTrackLibrary,
+  getRuntimeContext,
   getViewerIdentity,
+  subscribeToLiveEvents,
   type TrackLibraryResponse,
+  type RuntimeContext,
   type ViewerIdentity,
 } from "./api";
 import {
@@ -43,6 +46,7 @@ import { CopyButton } from "./ui/CopyButton";
 import { ClaudeCodeIcon } from "./ui/ClaudeCodeIcon";
 import { Icon, type IconName } from "./ui/Icon";
 import { MarkdownContent } from "./ui/MarkdownContent";
+import { LiveShareButton } from "./ui/LiveShareButton";
 import { createSessionShareUrl, isSessionShareUrl } from "./shareUrl";
 
 type ViewMode = "compact" | "full";
@@ -948,6 +952,7 @@ function DetailsRail({
   traceOrder,
   shareUrl,
   sharedView,
+  surface,
   activeFilters,
   activeToolFilters,
   activeActivityFilters,
@@ -967,6 +972,7 @@ function DetailsRail({
   traceOrder: TraceOrder;
   shareUrl: string;
   sharedView: boolean;
+  surface: RuntimeContext["surface"] | null;
   activeFilters: ReadonlySet<EntryFilter>;
   activeToolFilters: ReadonlySet<ToolIntent>;
   activeActivityFilters: ReadonlySet<ActivityKind>;
@@ -1100,7 +1106,9 @@ function DetailsRail({
             ? ` of ${track.summary.entryCount.toLocaleString()}`
             : track.truncated ? "+" : ""} entries
         </div>
-        <p className="rail-note"><span className={`live-indicator live-${liveState}`} />{liveState === "live" ? "Watching the local session for changes." : "Reconnecting to local updates."}</p>
+        <p className="rail-note"><span className={`live-indicator live-${liveState}`} />{liveState === "live"
+          ? surface === "local" ? "Watching the local session for changes." : "Watching the source device for changes."
+          : surface === "local" ? "Reconnecting to local updates." : "Reconnecting to the source device."}</p>
       </section>
       <section>
         <div className="rail-heading">Layout</div>
@@ -1122,10 +1130,18 @@ function DetailsRail({
             Latest first
           </button>
         </div>
-        <CopyButton value={shareUrl} label="Copy session link" className="rail-share-button" />
+        <LiveShareButton
+          trackId={track.summary.id}
+          fallbackUrl={shareUrl}
+          sharedView={sharedView}
+          allowLocalFallback={surface === "local"}
+          className="rail-share-button"
+        />
         <p className="share-scope-note">
           <Icon name="link" size="xs" />
-          {sharedView ? "Session-only view · library excluded" : "Opens this session without the local library"}
+          {sharedView
+            ? "Live session only · private libraries excluded"
+            : surface === "local" ? "Creates a live link when connected; otherwise copies a local link" : "Creates a live session-only link"}
         </p>
       </section>
     </aside>
@@ -1161,6 +1177,7 @@ export function App() {
   const [activeToolFilters, setActiveToolFilters] = useState<Set<ToolIntent>>(readToolFiltersFromLocation);
   const [activeActivityFilters, setActiveActivityFilters] = useState<Set<ActivityKind>>(readActivityFiltersFromLocation);
   const [sharedView] = useState(() => isSessionShareUrl(window.location.href));
+  const [runtimeContext, setRuntimeContext] = useState<RuntimeContext | null>(null);
   const [libraryCollapsed, setLibraryCollapsed] = useState(readLibraryCollapsed);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [libraryError, setLibraryError] = useState<string | null>(null);
@@ -1238,6 +1255,20 @@ export function App() {
   }, [query]);
 
   useEffect(() => {
+    let cancelled = false;
+    void getRuntimeContext()
+      .then((context) => {
+        if (cancelled) return;
+        setRuntimeContext(context);
+        if (context.surface === "live-share" && context.trackId) setSelectedId(context.trackId);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setTrackError(error instanceof Error ? error.message : "Could not load this Tracks view.");
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
     if (sharedView) {
       setLibrary(null);
       return;
@@ -1284,7 +1315,7 @@ export function App() {
   }, [selectedId]);
 
   useEffect(() => {
-    const events = new EventSource("/api/events");
+    const controller = new AbortController();
     let closed = false;
 
     const refreshLiveData = () => {
@@ -1341,15 +1372,29 @@ export function App() {
       }, 90);
     };
 
-    events.onopen = () => setLiveState("live");
-    events.addEventListener("connected", () => setLiveState("live"));
-    events.addEventListener("catalog.updated", refreshLiveData);
-    events.addEventListener("catalog.error", () => setLiveState("reconnecting"));
-    events.onerror = () => setLiveState("reconnecting");
+    void subscribeToLiveEvents({
+      signal: controller.signal,
+      onOpen: () => setLiveState("live"),
+      onEvent: ({ event, data }) => {
+        if (event === "connected") setLiveState("live");
+        if (event === "catalog.updated") refreshLiveData();
+        if (event === "catalog.error") setLiveState("reconnecting");
+        if (event === "remote.updated") {
+          void getRuntimeContext().then(setRuntimeContext).catch(() => undefined);
+        }
+        if (event === "device.status") {
+          const online = Boolean(data && typeof data === "object" && "online" in data && data.online);
+          setRuntimeContext((context) => context ? { ...context, online } : context);
+          setLiveState(online ? "live" : "reconnecting");
+          if (online) refreshLiveData();
+        }
+      },
+      onError: () => setLiveState("reconnecting"),
+    });
 
     return () => {
       closed = true;
-      events.close();
+      controller.abort();
       if (liveRefreshTimer.current) clearTimeout(liveRefreshTimer.current);
     };
   }, [sharedView]);
@@ -1671,7 +1716,7 @@ export function App() {
   const selectedSummary = library?.tracks.find((item) => item.id === selectedId)
     ?? (track?.summary.id === selectedId ? track.summary : null);
   const sessionShareUrl = track
-    ? createSessionShareUrl(window.location.href, track.summary.id)
+    ? sharedView ? window.location.href : createSessionShareUrl(window.location.href, track.summary.id)
     : null;
 
   return (
@@ -1693,7 +1738,7 @@ export function App() {
           <div className="brand-lockup">
             <span className="brand-mark"><Icon name="brand" size="sm" /></span>
             <span>Tracks</span>
-            <span className="local-badge">Local</span>
+            <span className="local-badge">{runtimeContext?.surface === "cloud-device" ? "Server" : "Local"}</span>
           </div>
           <IconButton label="Collapse session library" icon="sidebar" onClick={closeOrCollapseLibrary} />
         </header>
@@ -1754,7 +1799,16 @@ export function App() {
           ) : null}
         </div>
         <footer className="library-footer">
-          <span><span className={`health-dot live-${liveState}`} />{liveState === "live" ? "Live updates" : liveState === "reconnecting" ? "Reconnecting" : "Connecting"}</span>
+          <span title={runtimeContext?.remote?.lastError ?? undefined}>
+            <span className={`health-dot live-${runtimeContext?.remote?.connected === false && runtimeContext.remote.configured ? "reconnecting" : liveState}`} />
+            {runtimeContext?.surface === "cloud-device"
+              ? "Server view"
+              : runtimeContext?.remote?.connected
+                ? "Server connected"
+                : runtimeContext?.remote?.configured
+                  ? "Server disconnected"
+                  : liveState === "live" ? "Live updates" : liveState === "reconnecting" ? "Reconnecting" : "Connecting"}
+          </span>
           <span>{library ? `${library.total.toLocaleString()} sessions` : "—"}</span>
         </footer>
         </aside>
@@ -1782,15 +1836,33 @@ export function App() {
                 onClear={() => setTraceQuery("")}
               />
             ) : null}
-            {sessionShareUrl ? <CopyButton value={sessionShareUrl} label="Copy session link" className="mobile-share-button" /> : null}
+            {sessionShareUrl && track ? (
+              <LiveShareButton
+                trackId={track.summary.id}
+                fallbackUrl={sessionShareUrl}
+                sharedView={sharedView}
+                allowLocalFallback={runtimeContext?.surface === "local"}
+                className="mobile-share-button"
+              />
+            ) : null}
           </div>
         </header>
 
         <div className="workspace-body" data-mode={mode}>
           <section className="track-column" aria-busy={loadingTrack}>
-            {!selectedId && sharedView ? (
+            {!selectedId && sharedView && runtimeContext ? (
               <EmptyPanel icon="link" title="This session link is incomplete">
                 Open a link that includes one exact session.
+              </EmptyPanel>
+            ) : null}
+            {selectedId && sharedView && runtimeContext?.online === false && !track ? (
+              <EmptyPanel icon="session" title="The source device is offline">
+                This live link is valid, but its session remains on the disconnected device. Keep this page open or try again after the device reconnects.
+              </EmptyPanel>
+            ) : null}
+            {runtimeContext?.surface === "cloud-device" && runtimeContext.online === false && !track ? (
+              <EmptyPanel icon="session" title="This device is offline">
+                Tracks Server only shows sessions from connected devices. Start <code>tracks connect</code> on the source device to continue.
               </EmptyPanel>
             ) : null}
             {!selectedId && library?.sourceState === "missing" ? (
@@ -1809,9 +1881,15 @@ export function App() {
                 {Array.from({ length: 5 }, (_, index) => <div className="entry-skeleton" key={index} />)}
               </div>
             ) : null}
-            {trackError ? <div className="track-error"><Icon name="error" />{trackError}</div> : null}
+            {trackError && !(sharedView && runtimeContext?.online === false) ? <div className="track-error"><Icon name="error" />{trackError}</div> : null}
             {track ? (
               <>
+                {sharedView && runtimeContext?.online === false ? (
+                  <div className="diagnostic-banner live-share-offline">
+                    <Icon name="warning" />
+                    <span>The source device is offline. Already loaded entries remain visible, but Tracks Server has no stored copy and cannot fetch updates.</span>
+                  </div>
+                ) : null}
                 <div className="track-loaded" key={track.summary.id}>
                   <header className="track-hero">
                     <div className="track-eyebrow">
@@ -1936,6 +2014,7 @@ export function App() {
               traceOrder={traceOrder}
               shareUrl={sessionShareUrl!}
               sharedView={sharedView}
+              surface={runtimeContext?.surface ?? null}
               activeFilters={activeFilters}
               activeToolFilters={activeToolFilters}
               activeActivityFilters={activeActivityFilters}

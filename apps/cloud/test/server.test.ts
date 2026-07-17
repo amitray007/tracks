@@ -75,4 +75,69 @@ describe("Tracks cloud server", () => {
     await once(socket, "close");
     await waitFor(async () => (await readDevices()).devices.length === 0);
   });
+
+  it("relays bounded requests and keeps live-share content device-backed", async () => {
+    const cloud = await startTracksCloud({ token: TOKEN, webDirectory: false });
+    running.push(cloud);
+    const deviceId = "019d2c64-2526-7f8a-b289-a1f9ad67c805";
+    const socket = new WebSocket(cloud.url.replace("http://", "ws://") + "/api/agent", {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+    await once(socket, "open");
+    socket.send(JSON.stringify({
+      type: "agent.hello",
+      protocolVersion: LIVE_PROTOCOL_VERSION,
+      device: {
+        id: deviceId,
+        name: "Relay Mac",
+        platform: "darwin-arm64",
+        version: "0.0.0-test",
+        capabilities: ["library.page", "track.page"],
+      },
+    }));
+    await once(socket, "message");
+
+    const requestMessage = once(socket, "message");
+    const libraryResponse = fetch(`${cloud.url}/api/devices/${deviceId}/tracks?limit=10&offset=0`, {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+    const [requestData] = await requestMessage;
+    const request = ServerMessageSchema.parse(JSON.parse(requestData.toString()));
+    expect(request).toMatchObject({ type: "server.request", operation: "library.page" });
+    if (request.type !== "server.request") return;
+    socket.send(JSON.stringify({
+      type: "agent.response",
+      requestId: request.requestId,
+      ok: true,
+      payload: {
+        tracks: [],
+        scannedAt: "2026-07-18T00:00:00.000Z",
+        sourceState: "ready",
+        total: 0,
+        offset: 0,
+        nextOffset: null,
+      },
+    }));
+    expect(await (await libraryResponse).json()).toMatchObject({ total: 0, tracks: [] });
+
+    const shareMessage = once(socket, "message");
+    socket.send(JSON.stringify({
+      type: "agent.share.create",
+      requestId: "019d2c64-2526-7f8a-b289-a1f9ad67c806",
+      trackId: "claude:fixture:session",
+    }));
+    const [shareData] = await shareMessage;
+    const created = ServerMessageSchema.parse(JSON.parse(shareData.toString()));
+    expect(created.type).toBe("server.share.created");
+    if (created.type !== "server.share.created") return;
+
+    const contextUrl = `${cloud.url}/api/shares/${created.shareId}/context`;
+    const readContext = () => fetch(contextUrl, {
+      headers: { "X-Tracks-Share-Token": created.viewerSecret },
+    }).then((response) => response.json()) as Promise<{ online: boolean }>;
+    expect(await readContext()).toMatchObject({ online: true });
+    socket.close();
+    await once(socket, "close");
+    await waitFor(async () => !(await readContext()).online);
+  });
 });

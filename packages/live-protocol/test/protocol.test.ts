@@ -3,6 +3,7 @@ import {
   AgentMessageSchema,
   ConnectedDevicesResponseSchema,
   LIVE_PROTOCOL_VERSION,
+  ServerMessageSchema,
 } from "../src/index.js";
 
 describe("live protocol", () => {
@@ -43,5 +44,21 @@ describe("live protocol", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it("validates bounded library and track requests", () => {
+    expect(ServerMessageSchema.parse({
+      type: "server.request",
+      requestId: "019d2c64-2526-7f8a-b289-a1f9ad67c803",
+      operation: "library.page",
+      parameters: { limit: 60, offset: 0 },
+    }).type).toBe("server.request");
+
+    expect(() => ServerMessageSchema.parse({
+      type: "server.request",
+      requestId: "019d2c64-2526-7f8a-b289-a1f9ad67c804",
+      operation: "track.page",
+      parameters: { trackId: "track", limit: 10_000, direction: "forward" },
+    })).toThrow();
   });
 });

@@ -40,13 +40,13 @@ pnpm dev:plain
 
 This starts the web UI at `http://127.0.0.1:4317` and the API at `http://127.0.0.1:4318`.
 
-The hosted-server foundation can also run directly during development:
+The hosted server can also run directly during development:
 
 ```sh
 pnpm cloud:dev
 ```
 
-It starts an isolated server dashboard at `http://127.0.0.1:8787` and prints a temporary bootstrap token. The current vertical slice implements authenticated in-memory device presence; CLI login/connect and session relay are the next layers.
+It starts an isolated server dashboard at `http://127.0.0.1:8787` and prints a temporary bootstrap token. Connected devices appear in real time and open the shared session viewer through bounded, on-demand relay requests.
 
 For a self-hosted bootstrap deployment:
 
@@ -58,13 +58,21 @@ docker compose up --build
 
 Compose binds the dashboard to `127.0.0.1:8787` by default, runs the container read-only as a non-root user, and mounts no session or database volume. Put it behind HTTPS before changing the bind address. The bootstrap token is not the planned production account/device authentication flow.
 
-The foreground CLI path serves the production web build and opens an ephemeral loopback URL:
+The installed-style CLI uses one background agent for the loopback web server, Claude source watcher, and optional outbound server connection:
 
 ```sh
 pnpm build
 pnpm tracks -- doctor
-pnpm tracks -- serve --no-open
+pnpm tracks -- web start
+pnpm tracks -- status
+
+# Optional self-hosted connection. Use --token-stdin to avoid shell history.
+printf '%s' "$TRACKS_CLOUD_TOKEN" | \
+  pnpm tracks -- login --server http://127.0.0.1:8787 --token-stdin
+pnpm tracks -- connect
 ```
+
+`tracks web stop` stops the background agent. `tracks connect stop` disconnects only the hosted connection and leaves local viewing available. `tracks logout` removes the bootstrap credential. The compatibility command `tracks serve --no-open` remains available for a foreground process.
 
 ## Documentation
 
@@ -103,6 +111,6 @@ Shared components render a documented minimum canonical shape and treat richer p
 
 ## Status
 
-Implemented now: a pnpm/TypeScript workspace, canonical runtime schemas, provider SDK boundary, bounded Claude Code JSONL discovery/parsing, a tested Node loopback API, foreground CLI, production web serving, responsive React session library, compact/full views, the semantic Hugeicons Free registry, and an isolated hosted-server scaffold with a versioned live protocol, in-memory device presence, dashboard, and container deployment.
+Implemented now: a pnpm/TypeScript workspace, canonical runtime schemas, provider SDK boundary, bounded Claude Code JSONL discovery/parsing, a tested Node loopback API, a single background CLI agent, production web serving, responsive compact/full views, the semantic Hugeicons Free registry, authenticated outbound device connections, a versioned bounded relay protocol, a hosted online-device view, scoped per-session live links, explicit source-offline behavior, and a non-root/read-only Compose deployment.
 
-The implementation intentionally remains a vertical slice. Background CLI lifecycle, account login/device connection, remote session relay, SQLite/FTS, revision-checked raw inspection, redaction/export, and complete sharing are still roadmap work. Portless is pinned for development only and is not a shipped runtime dependency.
+The implementation intentionally remains a vertical slice. The self-hosted bootstrap uses one deployment token rather than production account/device authorization, and live-share routing metadata is process-memory-only. Revocation/expiry controls, project-scoped live shares, OS credential storage, SQLite/FTS, revision-checked raw inspection, reviewed static export, and production multi-instance hardening remain roadmap work. Portless is pinned for development only and is not a shipped runtime dependency.

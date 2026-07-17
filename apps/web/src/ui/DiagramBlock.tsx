@@ -247,7 +247,7 @@ export function DiagramBlock({ source, descriptor }: { source: string; descripto
           srcDoc={srcDoc}
           sandbox=""
           title={`${descriptor.label} diagram preview`}
-          style={{ height: `${frameHeight}px` }}
+          height={frameHeight}
         />
       ) : (
         <div className="diagram-loading" role="status">

@@ -11,7 +11,13 @@ if (!Number.isInteger(port) || port < 1 || port > 65_535) {
 }
 
 const host = process.env.TRACKS_CLOUD_HOST ?? "127.0.0.1";
-const cloud = await startTracksCloud({ host, port, token });
+const webDirectory = process.env.TRACKS_CLOUD_WEB_DIR;
+const cloud = await startTracksCloud({
+  host,
+  port,
+  token,
+  ...(webDirectory ? { webDirectory } : {}),
+});
 console.log(`Tracks Server is ready at ${cloud.url}`);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

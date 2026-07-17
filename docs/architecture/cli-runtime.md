@@ -14,7 +14,7 @@ The default experience is:
 
 No account, login, cloud service, or network connection is required for the local viewer.
 
-## Target CLI surface
+## CLI surface
 
 The installed CLI should stay small. The web UI owns detailed configuration and sharing workflows:
 
@@ -23,7 +23,7 @@ The installed CLI should stay small. The web UI owns detailed configuration and 
 | `tracks web [start]` | Start/reuse the background local service and open the local web UI |
 | `tracks web stop` | Stop local web/index watching without changing login state |
 | `tracks web status` | Report the local URL and local service health |
-| `tracks login` | Authorize this CLI/device with a configured Tracks Server through a browser/device flow |
+| `tracks login` | Verify and store a self-hosted server bootstrap credential; later replace this with browser/device authorization |
 | `tracks connect [start]` | Start/reuse the background agent and connect this device outbound to Tracks Server |
 | `tracks connect stop` | Disconnect the device while leaving local web available |
 | `tracks config [get|set|list]` | Inspect or change bounded machine-level settings; ordinary editing remains in web UI |
@@ -31,7 +31,7 @@ The installed CLI should stay small. The web UI owns detailed configuration and 
 
 `tracks` may remain an alias for `tracks web`. `serve` and `doctor` can remain development/diagnostic compatibility commands, but they are not separate product workflows. The CLI supports `--json` for lifecycle and automation commands and never prints unbounded session content by default.
 
-Initial configuration includes the local bind/port policy, browser-open preference, server URL, device display name, reconnect policy, and explicit auto-start choices. Tokens and refresh credentials are secrets, not ordinary config values, and use an OS credential store where available.
+Current configuration includes the source root, loopback port, browser-open preference, server URL, generated device ID, device display name, and connection-enabled state. The bootstrap token is redacted from CLI output and held in a user-only `0600` file. Production refresh credentials must move to an OS credential store; auto-start and configurable reconnect policy are not implemented yet.
 
 ## Service lifecycle
 
@@ -44,7 +44,7 @@ Initial configuration includes the local bind/port policy, browser-open preferen
 - Shut down watchers, workers, and database transactions cleanly.
 - Browser-launch failure leaves the service running and prints the local URL.
 
-The browser and API use one origin in production. A per-launch secret or equivalent same-user mechanism protects sensitive API responses from unrelated local pages and processes.
+The browser and API use one loopback origin in production. Host and Origin checks reject non-loopback browser requests. A stronger per-launch same-user secret remains required before exposing additional mutation endpoints.
 
 Local web, source watching, and the optional remote connection are modules in one user-owned background agent. They share one source watcher and one index; remote connection failure does not interrupt local web. Auto-start is off until the user enables it explicitly, and status reports local and remote health separately.
 
@@ -96,4 +96,4 @@ The current implementation deliberately reparses rather than inventing append-on
 
 The installed artifact contains the CLI, local service, migrations, and static web application. The development Vite server and Portless are not included in the runtime dependency chain. A later desktop wrapper may launch the same service but does not replace the CLI/local-service architecture.
 
-The optional hosted connection adds only a versioned protocol client and credential/reconnect state. It does not expose the loopback listener publicly. See [Live sharing and hosted server](live-sharing.md).
+The optional hosted connection adds only a versioned protocol client and credential/reconnect state. It opens an authenticated outbound WebSocket, answers bounded requests from the existing catalog, and never exposes the loopback listener publicly. See [Live sharing and hosted server](live-sharing.md).
