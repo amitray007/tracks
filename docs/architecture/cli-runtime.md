@@ -14,22 +14,24 @@ The default experience is:
 
 No account, login, cloud service, or network connection is required for the local viewer.
 
-## Initial CLI surface
+## Target CLI surface
 
-Exact names remain subject to implementation testing, but the first CLI should stay small:
+The installed CLI should stay small. The web UI owns detailed configuration and sharing workflows:
 
 | Command | Purpose |
 | --- | --- |
-| `tracks` | Start/reuse the service and open the web UI |
-| `tracks serve` | Run the service in the foreground and print its local URL |
-| `tracks open [track-or-project]` | Open the UI at a known local track/project when resolvable |
-| `tracks status` | Report process, URL, source/index health, and version without printing session content |
-| `tracks stop` | Stop the user-owned background service cleanly |
-| `tracks doctor` | Diagnose binding, permissions, database, source discovery, watcher, and browser-launch problems |
-| `tracks export ...` | Optional automation path for the same safe export engine used by the UI |
-| `tracks host ...` | Preview/serve an already-created share bundle; loopback by default |
+| `tracks web [start]` | Start/reuse the background local service and open the local web UI |
+| `tracks web stop` | Stop local web/index watching without changing login state |
+| `tracks web status` | Report the local URL and local service health |
+| `tracks login` | Authorize this CLI/device with a configured Tracks Server through a browser/device flow |
+| `tracks connect [start]` | Start/reuse the background agent and connect this device outbound to Tracks Server |
+| `tracks connect stop` | Disconnect the device while leaving local web available |
+| `tracks config [get|set|list]` | Inspect or change bounded machine-level settings; ordinary editing remains in web UI |
+| `tracks status` | Summarize local web, source watcher, login, remote connection, and version without session content |
 
-The CLI supports `--json` for lifecycle and automation commands. It does not print unbounded session content by default.
+`tracks` may remain an alias for `tracks web`. `serve` and `doctor` can remain development/diagnostic compatibility commands, but they are not separate product workflows. The CLI supports `--json` for lifecycle and automation commands and never prints unbounded session content by default.
+
+Initial configuration includes the local bind/port policy, browser-open preference, server URL, device display name, reconnect policy, and explicit auto-start choices. Tokens and refresh credentials are secrets, not ordinary config values, and use an OS credential store where available.
 
 ## Service lifecycle
 
@@ -43,6 +45,8 @@ The CLI supports `--json` for lifecycle and automation commands. It does not pri
 - Browser-launch failure leaves the service running and prints the local URL.
 
 The browser and API use one origin in production. A per-launch secret or equivalent same-user mechanism protects sensitive API responses from unrelated local pages and processes.
+
+Local web, source watching, and the optional remote connection are modules in one user-owned background agent. They share one source watcher and one index; remote connection failure does not interrupt local web. Auto-start is off until the user enables it explicitly, and status reports local and remote health separately.
 
 ## Web UI ownership
 
@@ -91,3 +95,5 @@ The current implementation deliberately reparses rather than inventing append-on
 ## Packaging boundary
 
 The installed artifact contains the CLI, local service, migrations, and static web application. The development Vite server and Portless are not included in the runtime dependency chain. A later desktop wrapper may launch the same service but does not replace the CLI/local-service architecture.
+
+The optional hosted connection adds only a versioned protocol client and credential/reconnect state. It does not expose the loopback listener publicly. See [Live sharing and hosted server](live-sharing.md).

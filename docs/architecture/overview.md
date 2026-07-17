@@ -28,9 +28,12 @@ flowchart LR
     N --> RAW["Raw evidence store/references"]
     IDX --> API["Local query API"]
     RAW --> API
-    API --> UI["Tracks web UI"]
+    API --> UI["Local Tracks web UI"]
     UI --> EXP["Sanitized static share bundle"]
     EXP -. explicit later publish .-> HOST["User-chosen static/managed host"]
+    API -. optional outbound device connection .-> RELAY["Tracks Server relay"]
+    RELAY --> OWNER["Authenticated server web"]
+    RELAY --> LIVE["Scoped live-share viewer"]
 ~~~
 
 ## Runtime shape
@@ -58,7 +61,9 @@ Benefits:
 - Session/project sharing reuses the normalized model and renderers without granting a publisher direct source access.
 - A later desktop wrapper can reuse the same local service.
 
-See [CLI and local runtime](cli-runtime.md) for lifecycle and Portless development rules, and [Sharing and hosting](sharing-hosting.md) for static export and publisher boundaries.
+An optional connection module in the same local agent may open an outbound WebSocket to Tracks Server. That server exposes an authenticated online-device dashboard and later routes bounded session requests to an online device. It is not a second index and does not persist session payloads. Local viewing remains accountless and independent of this connection.
+
+See [CLI and local runtime](cli-runtime.md) for lifecycle and Portless development rules, [Sharing and hosting](sharing-hosting.md) for static export, and [Live sharing and hosted server](live-sharing.md) for the device relay and server web boundary.
 
 ## Normalization layers
 
@@ -106,6 +111,8 @@ The table separates the implemented Claude foundation from later candidates so t
 | Virtualization | Candidate: `@tanstack/react-virtual` | Needed after measuring very long complete traces and scroll anchoring |
 | Local storage | SQLite with FTS5 | Rebuildable metadata and full-text search index |
 | Live updates | Recursive file watcher plus server-sent events | One-way source invalidation, native browser reconnect, and no bidirectional socket protocol |
+| Hosted connection | Versioned, schema-validated WebSocket control protocol | Outbound device presence and later bounded request routing without exposing the loopback API |
+| Server dashboard | Small server-owned web shell plus authenticated SSE presence | Keeps the hosted surface independent from local filesystem authority while sharing product semantics |
 | Validation | TypeScript plus a runtime schema library | Boundary validation for provider and API data |
 | Sharing | Generated static site/package | Offline-capable session/project viewing on ordinary static hosting |
 
@@ -117,8 +124,10 @@ The server/runtime language should be chosen after validating Claude Code parsin
       web/                      React interface
       cli/                      installed entry point, service lifecycle, browser launch
       server/                   local API, source access, index orchestration
+      cloud/                    hosted relay, device dashboard, live-share entry surface
     packages/
       core-model/               canonical session types and validation
+      live-protocol/            bounded versioned device/server control schemas
       provider-sdk/             adapter contract and conformance kit
       provider-claude-code/     first built-in adapter
       provider-codex/           later built-in adapter
@@ -131,6 +140,8 @@ The server/runtime language should be chosen after validating Claude Code parsin
     docs/
 
 Provider packages depend on core-model and provider-sdk. They must not depend on UI packages.
+
+`apps/cloud` must not depend on provider adapters, source discovery, or the local index. It can route only capabilities and bounded projections defined by the live protocol. That dependency direction makes accidental hosted ingestion structurally difficult.
 
 ## Data flow
 

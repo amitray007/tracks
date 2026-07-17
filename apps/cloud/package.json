@@ -1,0 +1,22 @@
+{
+  "name": "@tracks/cloud",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/dev.ts",
+    "start": "node dist/index.js",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@tracks/live-protocol": "workspace:*",
+    "ws": "8.21.1"
+  },
+  "devDependencies": {
+    "@types/ws": "8.18.1",
+    "vitest": "4.1.10"
+  }
+}

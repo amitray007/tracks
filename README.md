@@ -16,6 +16,7 @@ The initial and current implementation focus is Claude Code. The ingestion and c
 - Start from a small CLI that launches/reuses the local service and opens the browser UI.
 - Offer compact and full views of the same evidence.
 - Turn one session or a reviewed project session set into a sanitized static share bundle that can be hosted independently.
+- Optionally connect the local agent to a self-hosted Tracks Server for an online-device dashboard and live, device-backed session sharing without copying sessions into server storage.
 
 The first Claude Code vertical slice is now runnable. It discovers top-level local sessions, normalizes bounded transcript slices, serves them through a loopback API, and renders compact/full views in the web UI.
 
@@ -39,6 +40,24 @@ pnpm dev:plain
 
 This starts the web UI at `http://127.0.0.1:4317` and the API at `http://127.0.0.1:4318`.
 
+The hosted-server foundation can also run directly during development:
+
+```sh
+pnpm cloud:dev
+```
+
+It starts an isolated server dashboard at `http://127.0.0.1:8787` and prints a temporary bootstrap token. The current vertical slice implements authenticated in-memory device presence; CLI login/connect and session relay are the next layers.
+
+For a self-hosted bootstrap deployment:
+
+```sh
+cp .env.example .env
+# Replace TRACKS_CLOUD_TOKEN in .env with: openssl rand -hex 32
+docker compose up --build
+```
+
+Compose binds the dashboard to `127.0.0.1:8787` by default, runs the container read-only as a non-root user, and mounts no session or database volume. Put it behind HTTPS before changing the bind address. The bootstrap token is not the planned production account/device authentication flow.
+
 The foreground CLI path serves the production web build and opens an ephemeral loopback URL:
 
 ```sh
@@ -58,6 +77,7 @@ Start with the [documentation index](docs/README.md).
 - [Canonical session model](docs/architecture/session-model.md)
 - [CLI and local runtime](docs/architecture/cli-runtime.md)
 - [Sharing and hosting](docs/architecture/sharing-hosting.md)
+- [Live sharing and hosted server](docs/architecture/live-sharing.md)
 - [Initial runtime decision](docs/architecture/decisions/0001-typescript-loopback-runtime.md)
 - [Claude Code provider evidence](docs/providers/claude-code.md)
 - [Design documentation](docs/design/README.md)
@@ -73,7 +93,9 @@ Provider data is normalized before it reaches the UI:
 
 The installed product flow is:
 
-    tracks CLI -> loopback service/index -> compact/full web UI -> reviewed static share bundle -> optional host
+    tracks CLI -> loopback service/index -> compact/full local web UI
+                                    \-> optional outbound connection -> Tracks Server -> server web/live share
+                                    \-> reviewed static share bundle -> optional static host
 
 Provider adapters own discovery, parsing, normalization, capabilities, and raw evidence references. Shared UI components own chronology, navigation, accessibility, and rendering. Provider plugins do not inject arbitrary UI code in the initial model.
 
@@ -81,6 +103,6 @@ Shared components render a documented minimum canonical shape and treat richer p
 
 ## Status
 
-Implemented now: a pnpm/TypeScript workspace, canonical runtime schemas, provider SDK boundary, bounded Claude Code JSONL discovery/parsing, a tested Node loopback API, foreground CLI, production web serving, responsive React session library, compact/full views, and the semantic Hugeicons Free registry.
+Implemented now: a pnpm/TypeScript workspace, canonical runtime schemas, provider SDK boundary, bounded Claude Code JSONL discovery/parsing, a tested Node loopback API, foreground CLI, production web serving, responsive React session library, compact/full views, the semantic Hugeicons Free registry, and an isolated hosted-server scaffold with a versioned live protocol, in-memory device presence, dashboard, and container deployment.
 
-The implementation intentionally remains a vertical slice. Background CLI lifecycle, SQLite/FTS, live watching, revision-checked raw inspection, rich Markdown/diff rendering, redaction/export, and sharing/hosting are still roadmap work. Portless is pinned for development only and is not a shipped runtime dependency.
+The implementation intentionally remains a vertical slice. Background CLI lifecycle, account login/device connection, remote session relay, SQLite/FTS, revision-checked raw inspection, redaction/export, and complete sharing are still roadmap work. Portless is pinned for development only and is not a shipped runtime dependency.

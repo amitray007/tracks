@@ -15,6 +15,8 @@
     "test": "pnpm build:packages && pnpm -r --if-present --sort test",
     "check": "pnpm typecheck && pnpm test && pnpm build",
     "build:packages": "pnpm --filter './packages/**' --sort build",
+    "cloud:dev": "pnpm --filter @tracks/cloud dev",
+    "cloud:start": "pnpm --filter @tracks/cloud start",
     "tracks": "pnpm --filter @tracks/cli dev --"
   },
   "devDependencies": {
