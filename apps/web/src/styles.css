@@ -2325,14 +2325,14 @@ code, pre, kbd {
 .filter-mark > span { width: 5px; height: 5px; background: transparent; border-radius: 1px; }
 .filter-list > button[data-active="true"] .filter-mark { border-color: rgba(168, 180, 255, 0.55); }
 .filter-list > button[data-active="true"] .filter-mark > span { background: var(--accent); }
-.tool-filter-list {
+.nested-filter-list {
   display: grid;
   gap: 1px;
   margin: 1px 0 4px 10px;
   padding-left: 10px;
   border-left: 1px solid #2a2c2f;
 }
-.tool-filter-list > button {
+.nested-filter-list > button {
   width: 100%;
   min-height: 25px;
   display: grid;
@@ -2347,12 +2347,12 @@ code, pre, kbd {
   font-size: 9px;
   text-align: left;
 }
-.tool-filter-list > button:hover { color: #b7b9bc; background: rgba(255, 255, 255, 0.025); }
-.tool-filter-list > button[data-active="true"] { color: #9da1a7; }
-.tool-filter-list output { color: #5f6267; font-size: 8.5px; font-variant-numeric: tabular-nums; }
-.tool-filter-list .filter-mark { width: 10px; height: 10px; }
-.tool-filter-list > button[data-active="true"] .filter-mark { border-color: rgba(168, 180, 255, 0.5); }
-.tool-filter-list > button[data-active="true"] .filter-mark > span { background: var(--accent); }
+.nested-filter-list > button:hover { color: #b7b9bc; background: rgba(255, 255, 255, 0.025); }
+.nested-filter-list > button[data-active="true"] { color: #9da1a7; }
+.nested-filter-list output { color: #5f6267; font-size: 8.5px; font-variant-numeric: tabular-nums; }
+.nested-filter-list .filter-mark { width: 10px; height: 10px; }
+.nested-filter-list > button[data-active="true"] .filter-mark { border-color: rgba(168, 180, 255, 0.5); }
+.nested-filter-list > button[data-active="true"] .filter-mark > span { background: var(--accent); }
 .activity-filter-section { background: rgba(255, 255, 255, 0.008); }
 .activity-filter-grid {
   display: grid;

@@ -58,6 +58,7 @@ import { createSessionShareUrl, isSessionShareUrl } from "./shareUrl";
 type ViewMode = "compact" | "full";
 type LiveState = "connecting" | "live" | "reconnecting";
 type EntryFilter = "messages" | "reasoning" | "tools" | "results" | "subagents" | "status" | "provider";
+type MessageRoleFilter = "user" | "assistant";
 type SidebarGroupMode = "time" | "project";
 type TraceOrder = "oldest" | "latest";
 type TraceSearchMode = "text" | "regex";
@@ -87,6 +88,17 @@ const DEFAULT_ENTRY_FILTERS: ReadonlyArray<EntryFilter> = [
   "results",
   "subagents",
 ];
+
+const MESSAGE_ROLE_FILTERS: ReadonlyArray<{
+  id: MessageRoleFilter;
+  label: string;
+  icon: IconName;
+}> = [
+  { id: "user", label: "You", icon: "user" },
+  { id: "assistant", label: "Claude", icon: "assistant" },
+];
+
+const ALL_MESSAGE_ROLE_FILTERS = MESSAGE_ROLE_FILTERS.map(({ id }) => id);
 
 const TOOL_FILTERS: ReadonlyArray<{
   id: ToolIntent;
@@ -125,7 +137,7 @@ const ALL_ACTIVITY_FILTERS = ACTIVITY_FILTERS.map(({ id }) => id);
 
 function filterForEntry(entry: TrackEntry): EntryFilter {
   switch (entry.kind) {
-    case "message": return "messages";
+    case "message": return entry.role === "system" ? "provider" : "messages";
     case "reasoning": return "reasoning";
     case "tool_call": return "tools";
     case "tool_result": return "results";
@@ -223,6 +235,23 @@ function readToolFiltersFromLocation(): Set<ToolIntent> {
     ALL_TOOL_FILTERS.includes(value as ToolIntent),
   );
   return new Set(known.length > 0 ? known : ALL_TOOL_FILTERS);
+}
+
+function readMessageRoleFiltersFromLocation(): Set<MessageRoleFilter> {
+  const searchParams = new URLSearchParams(window.location.search);
+  const entryFilterValues = searchParams.getAll("type");
+  const explicitEntryFilters = entryFilterValues.filter((value): value is EntryFilter =>
+    ALL_ENTRY_FILTERS.includes(value as EntryFilter),
+  );
+  if (entryFilterValues.includes("none") || (explicitEntryFilters.length > 0 && !explicitEntryFilters.includes("messages"))) {
+    return new Set();
+  }
+  const values = searchParams.getAll("message");
+  if (values.includes("none")) return new Set();
+  const known = values.filter((value): value is MessageRoleFilter =>
+    ALL_MESSAGE_ROLE_FILTERS.includes(value as MessageRoleFilter),
+  );
+  return new Set(known.length > 0 ? known : ALL_MESSAGE_ROLE_FILTERS);
 }
 
 function readActivityFiltersFromLocation(): Set<ActivityKind> {
@@ -1124,12 +1153,15 @@ function DetailsRail({
   sharedView,
   surface,
   activeFilters,
+  activeMessageRoleFilters,
   activeToolFilters,
   activeActivityFilters,
   filterCounts,
+  messageRoleFilterCounts,
   toolFilterCounts,
   activityFilterCounts,
   onToggleFilter,
+  onToggleMessageRoleFilter,
   onToggleToolFilter,
   onToggleActivityFilter,
   onResetFilters,
@@ -1144,12 +1176,15 @@ function DetailsRail({
   sharedView: boolean;
   surface: RuntimeContext["surface"] | null;
   activeFilters: ReadonlySet<EntryFilter>;
+  activeMessageRoleFilters: ReadonlySet<MessageRoleFilter>;
   activeToolFilters: ReadonlySet<ToolIntent>;
   activeActivityFilters: ReadonlySet<ActivityKind>;
   filterCounts: Record<EntryFilter, number>;
+  messageRoleFilterCounts: Record<MessageRoleFilter, number>;
   toolFilterCounts: Record<ToolIntent, number>;
   activityFilterCounts: Record<ActivityKind, number>;
   onToggleFilter(filter: EntryFilter): void;
+  onToggleMessageRoleFilter(filter: MessageRoleFilter): void;
   onToggleToolFilter(filter: ToolIntent): void;
   onToggleActivityFilter(filter: ActivityKind): void;
   onResetFilters(): void;
@@ -1202,8 +1237,32 @@ function DetailsRail({
                     <span>{filter.label}</span>
                     <output>{filterCounts[filter.id]}</output>
                   </button>
+                  {filter.id === "messages" ? (
+                    <div className="nested-filter-list" aria-label="Message authors">
+                      {MESSAGE_ROLE_FILTERS.map((messageFilter) => {
+                        const messageActive = activeMessageRoleFilters.has(messageFilter.id);
+                        return (
+                          <button
+                            key={messageFilter.id}
+                            type="button"
+                            aria-label={`${messageFilter.label}, ${messageRoleFilterCounts[messageFilter.id]}`}
+                            aria-pressed={messageActive}
+                            data-active={messageActive}
+                            onClick={() => onToggleMessageRoleFilter(messageFilter.id)}
+                          >
+                            <span className="filter-mark" aria-hidden="true"><span /></span>
+                            {messageFilter.id === "assistant"
+                              ? <ClaudeCodeIcon size={14} />
+                              : <Icon name={messageFilter.icon} size="sm" />}
+                            <span>{messageFilter.label}</span>
+                            <output>{messageRoleFilterCounts[messageFilter.id]}</output>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
                   {filter.id === "tools" ? (
-                    <div className="tool-filter-list" aria-label="Tool types">
+                    <div className="nested-filter-list" aria-label="Tool types">
                       {TOOL_FILTERS.filter((toolFilter) => toolFilterCounts[toolFilter.id] > 0).map((toolFilter) => {
                         const toolActive = activeToolFilters.has(toolFilter.id);
                         return (
@@ -1328,6 +1387,9 @@ export function App() {
   const [traceQuery, setTraceQuery] = useState("");
   const [traceSearchMode, setTraceSearchMode] = useState<TraceSearchMode>("text");
   const [activeFilters, setActiveFilters] = useState<Set<EntryFilter>>(readFiltersFromLocation);
+  const [activeMessageRoleFilters, setActiveMessageRoleFilters] = useState<Set<MessageRoleFilter>>(
+    readMessageRoleFiltersFromLocation,
+  );
   const [activeToolFilters, setActiveToolFilters] = useState<Set<ToolIntent>>(readToolFiltersFromLocation);
   const [activeActivityFilters, setActiveActivityFilters] = useState<Set<ActivityKind>>(readActivityFiltersFromLocation);
   const [sharedView] = useState(() => isSessionShareUrl(window.location.href));
@@ -1602,6 +1664,14 @@ export function App() {
         if (activeFilters.has(filter)) url.searchParams.append("type", filter);
       }
     }
+    url.searchParams.delete("message");
+    if (activeMessageRoleFilters.size === 0) {
+      url.searchParams.append("message", "none");
+    } else if (activeMessageRoleFilters.size < ALL_MESSAGE_ROLE_FILTERS.length) {
+      for (const filter of ALL_MESSAGE_ROLE_FILTERS) {
+        if (activeMessageRoleFilters.has(filter)) url.searchParams.append("message", filter);
+      }
+    }
     url.searchParams.delete("tool");
     if (activeToolFilters.size === 0) {
       url.searchParams.append("tool", "none");
@@ -1619,7 +1689,7 @@ export function App() {
       }
     }
     window.history.replaceState(null, "", url);
-  }, [activeActivityFilters, activeFilters, activeToolFilters, mode, sharedView, sidebarGroup, traceOrder]);
+  }, [activeActivityFilters, activeFilters, activeMessageRoleFilters, activeToolFilters, mode, sharedView, sidebarGroup, traceOrder]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1738,6 +1808,14 @@ export function App() {
     return counts;
   }, [track]);
 
+  const messageRoleFilterCounts = useMemo<Record<MessageRoleFilter, number>>(() => {
+    const counts: Record<MessageRoleFilter, number> = { user: 0, assistant: 0 };
+    for (const entry of track?.entries ?? []) {
+      if (entry.kind === "message" && entry.role !== "system") counts[entry.role] += 1;
+    }
+    return counts;
+  }, [track]);
+
   const toolCallsById = useMemo(() => {
     const calls = new Map<string, ToolCallEntry>();
     for (const entry of track?.entries ?? []) {
@@ -1808,6 +1886,9 @@ export function App() {
       const activity = activityForEntry(entry, relatedToolCall);
       if (activity) return activeActivityFilters.has(activity.kind);
       if (!activeFilters.has(filterForEntry(entry))) return false;
+      if (entry.kind === "message") {
+        return entry.role === "system" || activeMessageRoleFilters.has(entry.role);
+      }
       if (entry.kind === "tool_call") return activeToolFilters.has(toolIntent(entry));
       if (entry.kind === "tool_result" && entry.toolUseId) {
         const call = toolCallsById.get(entry.toolUseId);
@@ -1815,7 +1896,7 @@ export function App() {
       }
       return true;
     });
-  }, [activeActivityFilters, activeFilters, activeToolFilters, mode, toolCallsById, track]);
+  }, [activeActivityFilters, activeFilters, activeMessageRoleFilters, activeToolFilters, mode, toolCallsById, track]);
 
   const entrySearchIndex = useMemo(() => new Map(
     (track?.entries ?? []).map((entry) => [entry.id, entrySearchText(entry)]),
@@ -1854,10 +1935,34 @@ export function App() {
   );
 
   function toggleFilter(filter: EntryFilter) {
+    if (filter === "messages") {
+      const enableMessages = !activeFilters.has("messages");
+      setActiveFilters((current) => {
+        const next = new Set(current);
+        if (enableMessages) next.add("messages");
+        else next.delete("messages");
+        return next;
+      });
+      setActiveMessageRoleFilters(new Set(enableMessages ? ALL_MESSAGE_ROLE_FILTERS : []));
+      return;
+    }
     setActiveFilters((current) => {
       const next = new Set(current);
       if (next.has(filter)) next.delete(filter);
       else next.add(filter);
+      return next;
+    });
+  }
+
+  function toggleMessageRoleFilter(filter: MessageRoleFilter) {
+    const nextMessageRoleFilters = new Set(activeMessageRoleFilters);
+    if (nextMessageRoleFilters.has(filter)) nextMessageRoleFilters.delete(filter);
+    else nextMessageRoleFilters.add(filter);
+    setActiveMessageRoleFilters(nextMessageRoleFilters);
+    setActiveFilters((current) => {
+      const next = new Set(current);
+      if (nextMessageRoleFilters.size > 0) next.add("messages");
+      else next.delete("messages");
       return next;
     });
   }
@@ -2212,6 +2317,7 @@ export function App() {
                               setMode("full");
                             } else {
                               setActiveFilters(new Set(ALL_ENTRY_FILTERS));
+                              setActiveMessageRoleFilters(new Set(ALL_MESSAGE_ROLE_FILTERS));
                               setActiveToolFilters(new Set(ALL_TOOL_FILTERS));
                               setActiveActivityFilters(new Set(ALL_ACTIVITY_FILTERS));
                             }
@@ -2247,21 +2353,26 @@ export function App() {
               sharedView={sharedView}
               surface={runtimeContext?.surface ?? null}
               activeFilters={activeFilters}
+              activeMessageRoleFilters={activeMessageRoleFilters}
               activeToolFilters={activeToolFilters}
               activeActivityFilters={activeActivityFilters}
               filterCounts={filterCounts}
+              messageRoleFilterCounts={messageRoleFilterCounts}
               toolFilterCounts={toolFilterCounts}
               activityFilterCounts={activityFilterCounts}
               onToggleFilter={toggleFilter}
+              onToggleMessageRoleFilter={toggleMessageRoleFilter}
               onToggleToolFilter={toggleToolFilter}
               onToggleActivityFilter={toggleActivityFilter}
               onResetFilters={() => {
                 setActiveFilters(new Set(ALL_ENTRY_FILTERS));
+                setActiveMessageRoleFilters(new Set(ALL_MESSAGE_ROLE_FILTERS));
                 setActiveToolFilters(new Set(ALL_TOOL_FILTERS));
                 setActiveActivityFilters(new Set(ALL_ACTIVITY_FILTERS));
               }}
               onClearFilters={() => {
                 setActiveFilters(new Set());
+                setActiveMessageRoleFilters(new Set());
                 setActiveActivityFilters(new Set());
               }}
               onTraceOrderChange={setTraceOrder}
