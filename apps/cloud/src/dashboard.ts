@@ -142,18 +142,19 @@ main { width: min(940px, calc(100% - 40px)); margin: 0 auto; padding: 64px 0; }
 .hero > p:last-child { margin: 0; color: #92959a; font-size: 13px; line-height: 1.65; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; margin-top: 42px; padding-bottom: 10px; color: #73777d; border-bottom: 1px solid #27292b; font-size: 9px; font-weight: 650; letter-spacing: .12em; }
 .section-heading output { color: #777b82; font-size: 9px; font-weight: 400; letter-spacing: 0; text-transform: none; }
-.device-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; margin-top: 12px; }
-.device-card { min-width: 0; padding: 15px; color: inherit; text-decoration: none; background: var(--surface-raised); border: 1px solid var(--border); border-radius: 7px; transition: border-color 140ms ease, background-color 140ms ease, transform 140ms var(--ease-out); }
+.device-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+.device-card { min-width: 0; min-height: 126px; display: flex; flex-direction: column; padding: 15px; color: inherit; text-decoration: none; background: var(--surface-raised); border: 1px solid var(--border); border-radius: 7px; transition: border-color 140ms ease, background-color 140ms ease, transform 140ms var(--ease-out); }
+.device-card:active { transform: scale(.985); }
 .device-card:focus-visible { outline: 2px solid #727da9; outline-offset: 2px; }
-.device-card header { height: auto; padding: 0; background: transparent; border: 0; }
+.device-card header { height: auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0; background: transparent; border: 0; }
 .device-title { min-width: 0; display: flex; align-items: center; gap: 9px; }
-.device-icon { width: 28px; height: 28px; display: grid; place-items: center; color: #aeb6ff; background: #191b24; border: 1px solid #3d425c; border-radius: 5px; }
-.device-icon svg { width: 16px; height: 16px; }
+.device-icon { width: 32px; height: 32px; display: grid; place-items: center; color: #aeb6ff; background: #191b24; border: 1px solid #3d425c; border-radius: 6px; }
+.device-icon svg { width: 17px; height: 17px; }
 .device-title div { min-width: 0; display: grid; gap: 2px; }
-.device-title strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.device-title strong { overflow: hidden; font-size: 12px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .device-title span, .device-meta { color: #71757a; font-size: 9px; }
-.live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
-.device-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 14px; padding-top: 11px; border-top: 1px solid #242628; }
+.live-dot { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--green); }
+.device-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: auto; padding-top: 12px; border-top: 1px solid #242628; }
 .empty { min-height: 230px; display: grid; place-items: center; align-content: center; text-align: center; }
 .empty-mark { width: 34px; height: 34px; margin-bottom: 12px; border-radius: 50%; }
 .empty-mark svg { width: 20px; height: 20px; }
@@ -165,6 +166,11 @@ main { width: min(940px, calc(100% - 40px)); margin: 0 auto; padding: 64px 0; }
 @media (hover: hover) {
   .field-row button:hover { background: #2a2e3c; border-color: #515876; }
   .device-card:hover { background: #18191a; border-color: #3a3d41; transform: translateY(-1px); }
+  .device-card:hover:active { transform: scale(.985); }
+}
+
+@media (max-width: 900px) {
+  .device-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 680px) {
@@ -174,6 +180,10 @@ main { width: min(940px, calc(100% - 40px)); margin: 0 auto; padding: 64px 0; }
   .field-row { grid-template-columns: 1fr; }
   .field-row button { width: 100%; }
   .hero h1 { font-size: 30px; }
+}
+
+@media (max-width: 520px) {
+  .device-grid { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {
