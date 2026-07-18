@@ -17,6 +17,7 @@ Tracks is a local-first viewer for AI coding-agent sessions. It begins with Clau
 - [Canonical session model](architecture/session-model.md) — the provider-neutral types consumed by the UI.
 - [Privacy and security](architecture/privacy-security.md) — localhost defaults, untrusted content, redaction, and plugin safety.
 - [Sharing and hosting](architecture/sharing-hosting.md) — session/project shares, static bundles, preview hosting, and publisher boundaries.
+- [Live sharing and hosted server](architecture/live-sharing.md) — local agent, hosted device dashboard, zero-session-storage relay, live links, and deployment.
 - [ADR 0001: TypeScript loopback runtime](architecture/decisions/0001-typescript-loopback-runtime.md) — initial runtime, workspace, and Portless development decision.
 - [ADR 0002: Server-sent events](architecture/decisions/0002-server-sent-events.md) — one-way local source invalidation, reconnect, and refresh semantics.
 
@@ -55,6 +56,7 @@ Tracks is a local-first viewer for AI coding-agent sessions. It begins with Clau
 | Compact view | A deterministic, reversible narrative projection that groups/collapses low-signal mechanics while retaining links to full evidence. |
 | Full view | The complete normalized chronology with filters, inspection, raw evidence state, and every supported/unsupported entry. |
 | Share bundle | A sanitized immutable static session/project snapshot that can be previewed locally and hosted independently. |
+| Live share | A scoped view routed to an online source device; the hosted server does not retain its session payload. |
 
 The word “trace” is used only when discussing the Traces reference product or generic tracing concepts. Tracks' own user-facing nouns should be “session,” “track,” and “entry.”
 

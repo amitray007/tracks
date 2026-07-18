@@ -25,6 +25,8 @@ Priority levels:
 | CLI-05 | P0 | Leave the service running and print its URL when browser launch fails. |
 | CLI-06 | P1 | Provide bounded export/host automation that uses the same policy engine and artifacts as the web UI. |
 | CLI-07 | P0 | Use a pinned Portless development workflow with a stable same-origin `.localhost` URL; do not make Portless a shipped runtime dependency. |
+| CLI-08 | P0 | Provide `web`, `login`, `connect`, `logout`, `config`, and `status` command families while keeping detailed source, sharing, and device management in the web surfaces. |
+| CLI-09 | P0 | Keep local web and remote connection independently operable inside one user-owned background agent: `web` must not enable hosted presence, `connect` must not bind or open local web, and a server or network failure must not interrupt local viewing. |
 
 ### Source management
 
@@ -110,6 +112,22 @@ Priority levels:
 | LIVE-04 | P1 | Resume incremental parsing from a provider cursor when supported. |
 | LIVE-05 | P1 | Reconcile entries after file rewrite/compaction without unnecessary identity changes. |
 | LIVE-06 | P0 | Distinguish source live/recent activity from provider-confirmed process running state. |
+
+### Connected devices and live sharing
+
+| ID | Priority | Requirement |
+| --- | --- | --- |
+| CON-01 | P0 | Keep local web fully functional without an account, hosted server, or network connection. |
+| CON-02 | P0 | Connect a device to Tracks Server through an authenticated outbound connection; never expose the local loopback API as the remote transport. |
+| CON-03 | P0 | Provide a hosted owner web view that lists only the authenticated account's currently connected devices and updates presence without a page refresh. |
+| CON-04 | P0 | Never persist provider session files, normalized transcripts, session search text, artifacts, or device library listings on Tracks Server. |
+| CON-05 | P0 | Request library pages, entry pages, search results, and artifact ranges from an online device only when an authorized server/live viewer needs them, with strict bounds, timeouts, cancellation, and backpressure. |
+| CON-06 | P0 | Reuse one local source watcher for local SSE updates and remote revision invalidations; do not mirror complete active sessions on every file change. |
+| CON-07 | P1 | Create and revoke an unguessable, share-scoped live URL for one reviewed session or project selection without exposing the private local or server device library. |
+| CON-08 | P1 | Show an explicit source-device-offline state at a valid live URL and never serve a stale server-side session copy as if it were current. |
+| CON-09 | P0 | Provide a production container and Docker Compose bootstrap that runs non-root/read-only, has a health check, requires authentication, and mounts no session/database volume. |
+| CON-10 | P1 | Keep any future durable account/share routing metadata content-free, minimal, revocable, retention-bounded, and independently deletable. |
+| CON-11 | P0 | Let the local web UI configure, connect, disconnect, and log out of Tracks Server through the same background-agent lifecycle as the CLI; never return the saved access token to browser JavaScript. |
 
 ### Provider adapters
 

@@ -125,7 +125,38 @@ Make the vertical slice reliable enough for daily personal use.
 - Session and project share bundles pass offline, redaction, CSP, and static-host tests.
 - The preferred publisher completes the reviewed bundle-to-hosted-link workflow without becoming a local-viewer dependency.
 
-## Phase 3 — Provider-neutral proof
+## Phase 3 — Connected devices and live sharing
+
+**Current vertical slice (July 2026):** the single background agent, local-web and CLI connection/logout controls, separate bootstrap owner/device credentials, HttpOnly owner sessions, online-device dashboard/viewer, bounded library/track relay, catalog invalidations, per-session capability links, logout-aware offline state, and hardened single-container bootstrap are implemented and covered by process-level E2E tests. The work list below remains the full production exit bar; browser device grants, multi-account authorization, project scopes, revoke/expiry, cancellation, rate/load testing, and multi-instance routing are still open.
+
+### Objective
+
+Add the optional hosted server web experience without turning Tracks into a session-storage service or weakening the local product.
+
+### Work
+
+- Finish one background-agent lifecycle for `tracks web`, `tracks connect`, and `tracks status`.
+- Add browser/device-flow login, revocable device identity, secure credential storage, and reconnect with jitter.
+- Ship the self-hosted Tracks Server dashboard for authenticated connected-device presence.
+- Route cursor-bounded library and track pages from online devices through the versioned live protocol.
+- Reuse local file watching for remote revision invalidations and on-demand viewer refresh.
+- Add scoped live links for reviewed individual sessions and project selections.
+- Render deliberate device-offline, reconnecting, revoked, expired, unauthorized, and source-changed states.
+- Add request cancellation, payload ceilings, rate limits, backpressure, and server audit metadata that contains no session content.
+- Document TLS reverse-proxy deployment and evolve the single-process Compose bootstrap without adding session persistence.
+- Keep reviewed static bundles as the offline/durable alternative to a live link.
+
+### Exit criteria
+
+- Local web works unchanged while logged out, disconnected, or when Tracks Server is unavailable.
+- The server dashboard shows only authenticated, currently connected devices and updates in real time.
+- A live viewer receives only its reviewed scope and cannot enumerate either private sidebar.
+- Disconnecting the source device produces the documented offline state at the same live URL.
+- Server process, filesystem, logs, and network tests demonstrate that no session payload or library listing is retained after delivery.
+- Load tests prove bounded memory per device/viewer and correct cancellation/backpressure for slow viewers.
+- A fresh self-hosted deployment starts from the documented Compose file and passes health/security checks.
+
+## Phase 4 — Provider-neutral proof
 
 ### Objective
 
@@ -153,7 +184,7 @@ Codex is the recommended second adapter if its available session evidence exerci
 - Cross-provider search and filtering work.
 - Conformance tests prevent adapter-specific assumptions.
 
-## Phase 4 — Adapter SDK
+## Phase 5 — Adapter SDK
 
 ### Objective
 
@@ -176,7 +207,7 @@ Make provider development repeatable before allowing arbitrary installation.
 - Adapter coverage/diagnostics are visible in the product.
 - At least three provider shapes have informed the contract.
 
-## Phase 5 — External adapters and managed publishing
+## Phase 6 — External adapters and managed publishing
 
 ### Objective
 
@@ -256,7 +287,9 @@ Extend the ecosystem and add optional managed publishing without weakening local
 14. Search, filters, outline, and keyboard navigation.
 15. Single-session then project static-share bundles and local preview.
 16. Live updates and partial-tail reconciliation.
-17. Security, accessibility, and performance hardening.
+17. Background agent lifecycle, device authentication, and hosted presence.
+18. Bounded online-device relay and scoped live shares.
+19. Security, accessibility, and performance hardening.
 
 This ordering prevents the visual layer from accidentally becoming the provider model.
 

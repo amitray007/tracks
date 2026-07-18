@@ -2,6 +2,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -17,10 +18,17 @@ import type {
   ToolCallEntry,
 } from "@tracks/core-model";
 import {
+  connectTracksServer,
+  disconnectTracksServer,
   getTrackPage,
   getTrackLibrary,
+  getRuntimeContext,
   getViewerIdentity,
+  logoutTracksOwner,
+  subscribeToLiveEvents,
   type TrackLibraryResponse,
+  type RuntimeContext,
+  type RemoteConnectionSnapshot,
   type ViewerIdentity,
 } from "./api";
 import {
@@ -41,13 +49,16 @@ import {
 import { SubAgentEventBody } from "./trace/SubAgentEvent";
 import { CopyButton } from "./ui/CopyButton";
 import { ClaudeCodeIcon } from "./ui/ClaudeCodeIcon";
+import { TracksLogo } from "./ui/TracksLogo";
 import { Icon, type IconName } from "./ui/Icon";
 import { MarkdownContent } from "./ui/MarkdownContent";
+import { LiveShareButton } from "./ui/LiveShareButton";
 import { createSessionShareUrl, isSessionShareUrl } from "./shareUrl";
 
 type ViewMode = "compact" | "full";
 type LiveState = "connecting" | "live" | "reconnecting";
 type EntryFilter = "messages" | "reasoning" | "tools" | "results" | "subagents" | "status" | "provider";
+type MessageRoleFilter = "user" | "assistant";
 type SidebarGroupMode = "time" | "project";
 type TraceOrder = "oldest" | "latest";
 type TraceSearchMode = "text" | "regex";
@@ -77,6 +88,17 @@ const DEFAULT_ENTRY_FILTERS: ReadonlyArray<EntryFilter> = [
   "results",
   "subagents",
 ];
+
+const MESSAGE_ROLE_FILTERS: ReadonlyArray<{
+  id: MessageRoleFilter;
+  label: string;
+  icon: IconName;
+}> = [
+  { id: "user", label: "You", icon: "user" },
+  { id: "assistant", label: "Claude", icon: "assistant" },
+];
+
+const ALL_MESSAGE_ROLE_FILTERS = MESSAGE_ROLE_FILTERS.map(({ id }) => id);
 
 const TOOL_FILTERS: ReadonlyArray<{
   id: ToolIntent;
@@ -115,7 +137,7 @@ const ALL_ACTIVITY_FILTERS = ACTIVITY_FILTERS.map(({ id }) => id);
 
 function filterForEntry(entry: TrackEntry): EntryFilter {
   switch (entry.kind) {
-    case "message": return "messages";
+    case "message": return entry.role === "system" ? "provider" : "messages";
     case "reasoning": return "reasoning";
     case "tool_call": return "tools";
     case "tool_result": return "results";
@@ -213,6 +235,23 @@ function readToolFiltersFromLocation(): Set<ToolIntent> {
     ALL_TOOL_FILTERS.includes(value as ToolIntent),
   );
   return new Set(known.length > 0 ? known : ALL_TOOL_FILTERS);
+}
+
+function readMessageRoleFiltersFromLocation(): Set<MessageRoleFilter> {
+  const searchParams = new URLSearchParams(window.location.search);
+  const entryFilterValues = searchParams.getAll("type");
+  const explicitEntryFilters = entryFilterValues.filter((value): value is EntryFilter =>
+    ALL_ENTRY_FILTERS.includes(value as EntryFilter),
+  );
+  if (entryFilterValues.includes("none") || (explicitEntryFilters.length > 0 && !explicitEntryFilters.includes("messages"))) {
+    return new Set();
+  }
+  const values = searchParams.getAll("message");
+  if (values.includes("none")) return new Set();
+  const known = values.filter((value): value is MessageRoleFilter =>
+    ALL_MESSAGE_ROLE_FILTERS.includes(value as MessageRoleFilter),
+  );
+  return new Set(known.length > 0 ? known : ALL_MESSAGE_ROLE_FILTERS);
 }
 
 function readActivityFiltersFromLocation(): Set<ActivityKind> {
@@ -503,6 +542,159 @@ function IconButton({
     >
       <Icon name={icon} />
     </button>
+  );
+}
+
+function ServerConnectionDialog({
+  open,
+  remote,
+  onClose,
+  onChanged,
+}: {
+  open: boolean;
+  remote: RemoteConnectionSnapshot | undefined;
+  onClose(): void;
+  onChanged(remote: RemoteConnectionSnapshot): void;
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [serverUrl, setServerUrl] = useState("");
+  const [token, setToken] = useState("");
+  const [busyAction, setBusyAction] = useState<"connect" | "disconnect" | "logout" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (open && !dialog.open) dialog.showModal();
+    if (!open && dialog.open) dialog.close();
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    setServerUrl(remote?.serverUrl ?? "");
+    setToken("");
+    setError(null);
+  }, [open, remote?.serverUrl]);
+
+  const runAction = async (
+    action: "connect" | "disconnect" | "logout",
+    task: () => Promise<RemoteConnectionSnapshot>,
+  ) => {
+    setBusyAction(action);
+    setError(null);
+    try {
+      const next = await task();
+      onChanged(next);
+      if (action === "connect") setToken("");
+      if (action === "logout") onClose();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Tracks could not update the server connection.");
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const configured = remote?.configured === true;
+  const connected = remote?.connected === true;
+  const usingSavedAccess = configured && serverUrl.trim() === remote?.serverUrl && token.trim().length === 0;
+
+  return (
+    <dialog
+      className="server-connection-dialog"
+      ref={dialogRef}
+      aria-labelledby="server-connection-title"
+      onCancel={(event) => {
+        event.preventDefault();
+        if (!busyAction) onClose();
+      }}
+      onClose={onClose}
+    >
+      <header>
+        <div>
+          <span className="dialog-icon"><Icon name="integration" /></span>
+          <div>
+            <h2 id="server-connection-title">Tracks Server</h2>
+            <p>View and share this device's sessions online.</p>
+          </div>
+        </div>
+        <IconButton label="Close server settings" icon="close" onClick={onClose} disabled={Boolean(busyAction)} />
+      </header>
+
+      {connected ? (
+        <div className="server-connected-state">
+          <span className="server-state-mark"><span className="health-dot" /></span>
+          <div>
+            <strong>Device connected</strong>
+            <code>{remote?.serverUrl}</code>
+          </div>
+        </div>
+      ) : (
+        <form
+          className="server-connect-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void runAction("connect", () => usingSavedAccess
+              ? connectTracksServer()
+              : connectTracksServer({ serverUrl: serverUrl.trim(), token: token.trim() }));
+          }}
+        >
+          <label>
+            <span>Server URL</span>
+            <input
+              type="url"
+              value={serverUrl}
+              onChange={(event) => setServerUrl(event.target.value)}
+              placeholder="https://tracks.example.com"
+              autoComplete="url"
+              required
+              disabled={Boolean(busyAction)}
+            />
+          </label>
+          <label>
+            <span>Device token</span>
+            <input
+              type="password"
+              value={token}
+              onChange={(event) => setToken(event.target.value)}
+              placeholder={configured ? "Saved device token" : "Paste device token"}
+              autoComplete="off"
+              required={!configured || serverUrl.trim() !== remote?.serverUrl}
+              minLength={32}
+              disabled={Boolean(busyAction)}
+            />
+          </label>
+          <button className="server-primary-action" type="submit" disabled={Boolean(busyAction)}>
+            {busyAction === "connect" ? <span className="loading-spinner" /> : <Icon name="integration" size="sm" />}
+            {configured ? "Reconnect device" : "Connect device"}
+          </button>
+        </form>
+      )}
+
+      {error ? <p className="server-dialog-error" role="alert"><Icon name="error" size="sm" />{error}</p> : null}
+
+      {configured ? (
+        <footer>
+          {connected ? (
+            <button
+              type="button"
+              disabled={Boolean(busyAction)}
+              onClick={() => void runAction("disconnect", () => disconnectTracksServer(false))}
+            >
+              {busyAction === "disconnect" ? "Disconnecting…" : "Disconnect"}
+            </button>
+          ) : <span />}
+          <button
+            className="server-logout-action"
+            type="button"
+            disabled={Boolean(busyAction)}
+            title="Remove saved access and disconnect this device"
+            onClick={() => void runAction("logout", () => disconnectTracksServer(true))}
+          >
+            {busyAction === "logout" ? "Logging out…" : "Log out"}
+          </button>
+        </footer>
+      ) : null}
+    </dialog>
   );
 }
 
@@ -876,10 +1068,22 @@ function SessionGroupControl({
   );
 }
 
-function EmptyPanel({ icon, title, children }: { icon: IconName; title: string; children: ReactNode }) {
+function EmptyPanel({
+  icon,
+  title,
+  children,
+  brand = false,
+}: {
+  icon: IconName;
+  title: string;
+  children: ReactNode;
+  brand?: boolean;
+}) {
   return (
     <div className="empty-panel">
-      <span className="empty-icon"><Icon name={icon} size="lg" /></span>
+      <span className={`empty-icon${brand ? " empty-brand-mark" : ""}`}>
+        {brand ? <TracksLogo size={22} /> : <Icon name={icon} size="lg" />}
+      </span>
       <h2>{title}</h2>
       <p>{children}</p>
     </div>
@@ -900,11 +1104,10 @@ function SessionOverview({ track, mode }: { track: Track; mode: ViewMode }) {
     (entry.kind === "tool_result" && entry.isError)
     || (entry.kind === "status" && entry.tone === "danger"),
   ).length;
-  const providerEvents = track.entries.filter((entry) => entry.kind === "unsupported").length;
   const mechanics = track.entries.length - userMessages - assistantMessages - errors - subagents.length;
 
   return (
-    <section className="session-overview" aria-label="Loaded session overview">
+    <section className="session-overview" aria-label="Session overview">
       <header>
         <span>Summary</span>
         <span className="overview-badge">
@@ -929,13 +1132,13 @@ function SessionOverview({ track, mode }: { track: Track; mode: ViewMode }) {
         <div>
           <Icon name={errors > 0 ? "warning" : "status"} size="sm" />
           <span>Quality</span>
-          <strong>{errors} errors detected; {providerEvents} provider-specific events preserved.</strong>
+          <strong>{errors === 0 ? "No errors detected." : `${errors} error${errors === 1 ? "" : "s"} detected.`}</strong>
         </div>
       </div>
       <footer>
         {mode === "compact"
-          ? `${Math.max(0, mechanics).toLocaleString()} loaded implementation events hidden from Highlights`
-          : `${track.entries.length.toLocaleString()} entries loaded${track.truncated ? " · more available on scroll" : ""}`}
+          ? `${Math.max(0, mechanics).toLocaleString()} additional events available in Full trace`
+          : `${track.entries.length.toLocaleString()} entries shown${track.truncated ? " · more available on scroll" : ""}`}
       </footer>
     </section>
   );
@@ -948,13 +1151,17 @@ function DetailsRail({
   traceOrder,
   shareUrl,
   sharedView,
+  surface,
   activeFilters,
+  activeMessageRoleFilters,
   activeToolFilters,
   activeActivityFilters,
   filterCounts,
+  messageRoleFilterCounts,
   toolFilterCounts,
   activityFilterCounts,
   onToggleFilter,
+  onToggleMessageRoleFilter,
   onToggleToolFilter,
   onToggleActivityFilter,
   onResetFilters,
@@ -967,20 +1174,23 @@ function DetailsRail({
   traceOrder: TraceOrder;
   shareUrl: string;
   sharedView: boolean;
+  surface: RuntimeContext["surface"] | null;
   activeFilters: ReadonlySet<EntryFilter>;
+  activeMessageRoleFilters: ReadonlySet<MessageRoleFilter>;
   activeToolFilters: ReadonlySet<ToolIntent>;
   activeActivityFilters: ReadonlySet<ActivityKind>;
   filterCounts: Record<EntryFilter, number>;
+  messageRoleFilterCounts: Record<MessageRoleFilter, number>;
   toolFilterCounts: Record<ToolIntent, number>;
   activityFilterCounts: Record<ActivityKind, number>;
   onToggleFilter(filter: EntryFilter): void;
+  onToggleMessageRoleFilter(filter: MessageRoleFilter): void;
   onToggleToolFilter(filter: ToolIntent): void;
   onToggleActivityFilter(filter: ActivityKind): void;
   onResetFilters(): void;
   onClearFilters(): void;
   onTraceOrderChange(order: TraceOrder): void;
 }) {
-  const capabilities = Object.entries(track.summary.capabilities).filter(([, available]) => available);
   return (
     <aside className="details-rail" aria-label="Session details">
       <section>
@@ -1027,8 +1237,32 @@ function DetailsRail({
                     <span>{filter.label}</span>
                     <output>{filterCounts[filter.id]}</output>
                   </button>
+                  {filter.id === "messages" ? (
+                    <div className="nested-filter-list" aria-label="Message authors">
+                      {MESSAGE_ROLE_FILTERS.map((messageFilter) => {
+                        const messageActive = activeMessageRoleFilters.has(messageFilter.id);
+                        return (
+                          <button
+                            key={messageFilter.id}
+                            type="button"
+                            aria-label={`${messageFilter.label}, ${messageRoleFilterCounts[messageFilter.id]}`}
+                            aria-pressed={messageActive}
+                            data-active={messageActive}
+                            onClick={() => onToggleMessageRoleFilter(messageFilter.id)}
+                          >
+                            <span className="filter-mark" aria-hidden="true"><span /></span>
+                            {messageFilter.id === "assistant"
+                              ? <ClaudeCodeIcon size={14} />
+                              : <Icon name={messageFilter.icon} size="sm" />}
+                            <span>{messageFilter.label}</span>
+                            <output>{messageRoleFilterCounts[messageFilter.id]}</output>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
                   {filter.id === "tools" ? (
-                    <div className="tool-filter-list" aria-label="Tool types">
+                    <div className="nested-filter-list" aria-label="Tool types">
                       {TOOL_FILTERS.filter((toolFilter) => toolFilterCounts[toolFilter.id] > 0).map((toolFilter) => {
                         const toolActive = activeToolFilters.has(toolFilter.id);
                         return (
@@ -1082,25 +1316,18 @@ function DetailsRail({
           ) : null}
         </section>
         </>
-      ) : (
-        <section>
-          <div className="rail-heading">Available evidence</div>
-          <div className="capability-list">
-            {capabilities.length > 0 ? capabilities.map(([name]) => (
-              <span key={name}><Icon name="status" size="xs" />{name.replace(/([A-Z])/g, " $1")}</span>
-            )) : <span className="muted">Basic messages only</span>}
-          </div>
-        </section>
-      )}
+      ) : null}
       <section>
-        <div className="rail-heading">Loaded session</div>
+        <div className="rail-heading">Session entries</div>
         <div className="slice-count">
           {track.entries.length.toLocaleString()}
           {track.summary.entryCount !== null
             ? ` of ${track.summary.entryCount.toLocaleString()}`
             : track.truncated ? "+" : ""} entries
         </div>
-        <p className="rail-note"><span className={`live-indicator live-${liveState}`} />{liveState === "live" ? "Watching the local session for changes." : "Reconnecting to local updates."}</p>
+        <p className="rail-note"><span className={`live-indicator live-${liveState}`} />{liveState === "live"
+          ? surface === "local" ? "Watching the local session for changes." : "Watching the source device for changes."
+          : surface === "local" ? "Reconnecting to local updates." : "Reconnecting to the source device."}</p>
       </section>
       <section>
         <div className="rail-heading">Layout</div>
@@ -1122,11 +1349,13 @@ function DetailsRail({
             Latest first
           </button>
         </div>
-        <CopyButton value={shareUrl} label="Copy session link" className="rail-share-button" />
-        <p className="share-scope-note">
-          <Icon name="link" size="xs" />
-          {sharedView ? "Session-only view · library excluded" : "Opens this session without the local library"}
-        </p>
+        <LiveShareButton
+          trackId={track.summary.id}
+          fallbackUrl={shareUrl}
+          sharedView={sharedView}
+          allowLocalFallback={surface === "local"}
+          className="rail-share-button"
+        />
       </section>
     </aside>
   );
@@ -1158,11 +1387,16 @@ export function App() {
   const [traceQuery, setTraceQuery] = useState("");
   const [traceSearchMode, setTraceSearchMode] = useState<TraceSearchMode>("text");
   const [activeFilters, setActiveFilters] = useState<Set<EntryFilter>>(readFiltersFromLocation);
+  const [activeMessageRoleFilters, setActiveMessageRoleFilters] = useState<Set<MessageRoleFilter>>(
+    readMessageRoleFiltersFromLocation,
+  );
   const [activeToolFilters, setActiveToolFilters] = useState<Set<ToolIntent>>(readToolFiltersFromLocation);
   const [activeActivityFilters, setActiveActivityFilters] = useState<Set<ActivityKind>>(readActivityFiltersFromLocation);
   const [sharedView] = useState(() => isSessionShareUrl(window.location.href));
+  const [runtimeContext, setRuntimeContext] = useState<RuntimeContext | null>(null);
   const [libraryCollapsed, setLibraryCollapsed] = useState(readLibraryCollapsed);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [serverDialogOpen, setServerDialogOpen] = useState(false);
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [trackError, setTrackError] = useState<string | null>(null);
   const [trackMoreError, setTrackMoreError] = useState<string | null>(null);
@@ -1170,7 +1404,9 @@ export function App() {
   const [loadingTrackMore, setLoadingTrackMore] = useState(false);
   const [loadingLibraryMore, setLoadingLibraryMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [ownerLogoutBusy, setOwnerLogoutBusy] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const workspaceRef = useRef<HTMLElement>(null);
   const selectedIdRef = useRef<string | null>(selectedId);
   const libraryRef = useRef<TrackLibraryResponse | null>(library);
   const libraryQueryRef = useRef(debouncedQuery);
@@ -1238,6 +1474,20 @@ export function App() {
   }, [query]);
 
   useEffect(() => {
+    let cancelled = false;
+    void getRuntimeContext()
+      .then((context) => {
+        if (cancelled) return;
+        setRuntimeContext(context);
+        if (context.surface === "live-share" && context.trackId) setSelectedId(context.trackId);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setTrackError(error instanceof Error ? error.message : "Could not load this Tracks view.");
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
     if (sharedView) {
       setLibrary(null);
       return;
@@ -1283,8 +1533,12 @@ export function App() {
     setTraceSearchMode("text");
   }, [selectedId]);
 
+  useLayoutEffect(() => {
+    workspaceRef.current?.scrollTo({ top: 0 });
+  }, [selectedId]);
+
   useEffect(() => {
-    const events = new EventSource("/api/events");
+    const controller = new AbortController();
     let closed = false;
 
     const refreshLiveData = () => {
@@ -1295,14 +1549,22 @@ export function App() {
         const currentTrack = trackRef.current;
         const currentOrder = traceOrderRef.current;
         const libraryQuery = libraryQueryRef.current;
+        const needsTrackReload = Boolean(trackId && currentTrack?.summary.id !== trackId);
         let trackUpdate: Promise<Track | null> = Promise.resolve(null);
-        if (trackId && currentTrack?.summary.id === trackId) {
-          if (currentOrder === "latest") {
+        if (trackId) {
+          if (needsTrackReload) {
+            setLoadingTrack(true);
+            setTrackError(null);
+            trackUpdate = getTrackPage(trackId, {
+              direction: currentOrder === "latest" ? "backward" : "forward",
+              limit: TRACE_PAGE_SIZE,
+            });
+          } else if (currentTrack && currentOrder === "latest") {
             trackUpdate = getTrackPage(trackId, {
               direction: "backward",
               limit: Math.min(Math.max(currentTrack.entries.length, TRACE_PAGE_SIZE), 2_000),
             });
-          } else if (!currentTrack.truncated) {
+          } else if (currentTrack && !currentTrack.truncated) {
             const startSequence = (currentTrack.entries.at(-1)?.sequence ?? -1) + 1;
             trackUpdate = getTrackPage(trackId, { startSequence, limit: TRACE_PAGE_SIZE });
           }
@@ -1330,26 +1592,59 @@ export function App() {
             });
           }
           if (nextTrack && selectedIdRef.current === trackId) {
+            setTrackError(null);
             setTrack((loaded) => {
               if (!loaded || loaded.summary.id !== trackId) return nextTrack;
               return currentOrder === "latest" ? nextTrack : mergeTrackPage(loaded, nextTrack);
             });
           }
-        }).catch(() => {
-          if (!closed) setLiveState("reconnecting");
+        }).catch((error: unknown) => {
+          if (closed) return;
+          setLiveState("reconnecting");
+          if (needsTrackReload && selectedIdRef.current === trackId) {
+            setTrackError(error instanceof Error ? error.message : "Could not reload this session.");
+          }
+        }).finally(() => {
+          if (!closed && needsTrackReload && selectedIdRef.current === trackId) {
+            setLoadingTrack(false);
+          }
         });
       }, 90);
     };
 
-    events.onopen = () => setLiveState("live");
-    events.addEventListener("connected", () => setLiveState("live"));
-    events.addEventListener("catalog.updated", refreshLiveData);
-    events.addEventListener("catalog.error", () => setLiveState("reconnecting"));
-    events.onerror = () => setLiveState("reconnecting");
+    void subscribeToLiveEvents({
+      signal: controller.signal,
+      onOpen: () => setLiveState("live"),
+      onEvent: ({ event, data }) => {
+        if (event === "connected") setLiveState("live");
+        if (event === "catalog.updated") refreshLiveData();
+        if (event === "catalog.error") setLiveState("reconnecting");
+        if (event === "remote.updated") {
+          void getRuntimeContext().then(setRuntimeContext).catch(() => undefined);
+        }
+        if (event === "device.status") {
+          const online = Boolean(data && typeof data === "object" && "online" in data && data.online);
+          setRuntimeContext((context) => context ? { ...context, online } : context);
+          setLiveState(online ? "live" : "reconnecting");
+          if (online) {
+            if (sharedView && !trackRef.current && selectedIdRef.current) {
+              setLoadingTrack(true);
+              setTrackError(null);
+            }
+            refreshLiveData();
+          }
+          else if (sharedView) {
+            setTrack(null);
+            setTrackError(null);
+          }
+        }
+      },
+      onError: () => setLiveState("reconnecting"),
+    });
 
     return () => {
       closed = true;
-      events.close();
+      controller.abort();
       if (liveRefreshTimer.current) clearTimeout(liveRefreshTimer.current);
     };
   }, [sharedView]);
@@ -1369,6 +1664,14 @@ export function App() {
         if (activeFilters.has(filter)) url.searchParams.append("type", filter);
       }
     }
+    url.searchParams.delete("message");
+    if (activeMessageRoleFilters.size === 0) {
+      url.searchParams.append("message", "none");
+    } else if (activeMessageRoleFilters.size < ALL_MESSAGE_ROLE_FILTERS.length) {
+      for (const filter of ALL_MESSAGE_ROLE_FILTERS) {
+        if (activeMessageRoleFilters.has(filter)) url.searchParams.append("message", filter);
+      }
+    }
     url.searchParams.delete("tool");
     if (activeToolFilters.size === 0) {
       url.searchParams.append("tool", "none");
@@ -1386,7 +1689,7 @@ export function App() {
       }
     }
     window.history.replaceState(null, "", url);
-  }, [activeActivityFilters, activeFilters, activeToolFilters, mode, sharedView, sidebarGroup, traceOrder]);
+  }, [activeActivityFilters, activeFilters, activeMessageRoleFilters, activeToolFilters, mode, sharedView, sidebarGroup, traceOrder]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1505,6 +1808,14 @@ export function App() {
     return counts;
   }, [track]);
 
+  const messageRoleFilterCounts = useMemo<Record<MessageRoleFilter, number>>(() => {
+    const counts: Record<MessageRoleFilter, number> = { user: 0, assistant: 0 };
+    for (const entry of track?.entries ?? []) {
+      if (entry.kind === "message" && entry.role !== "system") counts[entry.role] += 1;
+    }
+    return counts;
+  }, [track]);
+
   const toolCallsById = useMemo(() => {
     const calls = new Map<string, ToolCallEntry>();
     for (const entry of track?.entries ?? []) {
@@ -1575,6 +1886,9 @@ export function App() {
       const activity = activityForEntry(entry, relatedToolCall);
       if (activity) return activeActivityFilters.has(activity.kind);
       if (!activeFilters.has(filterForEntry(entry))) return false;
+      if (entry.kind === "message") {
+        return entry.role === "system" || activeMessageRoleFilters.has(entry.role);
+      }
       if (entry.kind === "tool_call") return activeToolFilters.has(toolIntent(entry));
       if (entry.kind === "tool_result" && entry.toolUseId) {
         const call = toolCallsById.get(entry.toolUseId);
@@ -1582,7 +1896,7 @@ export function App() {
       }
       return true;
     });
-  }, [activeActivityFilters, activeFilters, activeToolFilters, mode, toolCallsById, track]);
+  }, [activeActivityFilters, activeFilters, activeMessageRoleFilters, activeToolFilters, mode, toolCallsById, track]);
 
   const entrySearchIndex = useMemo(() => new Map(
     (track?.entries ?? []).map((entry) => [entry.id, entrySearchText(entry)]),
@@ -1621,10 +1935,34 @@ export function App() {
   );
 
   function toggleFilter(filter: EntryFilter) {
+    if (filter === "messages") {
+      const enableMessages = !activeFilters.has("messages");
+      setActiveFilters((current) => {
+        const next = new Set(current);
+        if (enableMessages) next.add("messages");
+        else next.delete("messages");
+        return next;
+      });
+      setActiveMessageRoleFilters(new Set(enableMessages ? ALL_MESSAGE_ROLE_FILTERS : []));
+      return;
+    }
     setActiveFilters((current) => {
       const next = new Set(current);
       if (next.has(filter)) next.delete(filter);
       else next.add(filter);
+      return next;
+    });
+  }
+
+  function toggleMessageRoleFilter(filter: MessageRoleFilter) {
+    const nextMessageRoleFilters = new Set(activeMessageRoleFilters);
+    if (nextMessageRoleFilters.has(filter)) nextMessageRoleFilters.delete(filter);
+    else nextMessageRoleFilters.add(filter);
+    setActiveMessageRoleFilters(nextMessageRoleFilters);
+    setActiveFilters((current) => {
+      const next = new Set(current);
+      if (nextMessageRoleFilters.size > 0) next.add("messages");
+      else next.delete("messages");
       return next;
     });
   }
@@ -1668,11 +2006,22 @@ export function App() {
     setLibraryCollapsed(true);
   }
 
+  function handleRemoteChanged(remote: RemoteConnectionSnapshot) {
+    setRuntimeContext((current) => current ? { ...current, remote } : current);
+  }
+
   const selectedSummary = library?.tracks.find((item) => item.id === selectedId)
     ?? (track?.summary.id === selectedId ? track.summary : null);
   const sessionShareUrl = track
-    ? createSessionShareUrl(window.location.href, track.summary.id)
+    ? sharedView ? window.location.href : createSessionShareUrl(window.location.href, track.summary.id)
     : null;
+  const showingEmptyPanel = Boolean(
+    (!selectedId && sharedView && runtimeContext)
+    || (selectedId && sharedView && runtimeContext?.online === false && !track)
+    || (runtimeContext?.surface === "cloud-device" && runtimeContext.online === false && !track)
+    || (!selectedId && library?.sourceState === "missing")
+    || (!selectedId && library?.sourceState === "ready"),
+  );
 
   return (
     <div
@@ -1690,11 +2039,15 @@ export function App() {
         />
         <aside className="library-panel">
         <header className="library-header">
-          <div className="brand-lockup">
-            <span className="brand-mark"><Icon name="brand" size="sm" /></span>
+          <a
+            className="brand-lockup"
+            href="/"
+            aria-label={runtimeContext?.surface === "cloud-device" ? "Tracks Server home" : "Tracks home"}
+          >
+            <span className="brand-mark"><TracksLogo size={14} /></span>
             <span>Tracks</span>
-            <span className="local-badge">Local</span>
-          </div>
+            <span className="local-badge">{runtimeContext?.surface === "cloud-device" ? "Server" : "Local"}</span>
+          </a>
           <IconButton label="Collapse session library" icon="sidebar" onClick={closeOrCollapseLibrary} />
         </header>
         <div className="search-wrap">
@@ -1754,13 +2107,30 @@ export function App() {
           ) : null}
         </div>
         <footer className="library-footer">
-          <span><span className={`health-dot live-${liveState}`} />{liveState === "live" ? "Live updates" : liveState === "reconnecting" ? "Reconnecting" : "Connecting"}</span>
+          {runtimeContext?.surface === "local" ? (
+            <button
+              className="server-status-button"
+              type="button"
+              title={runtimeContext.remote?.lastError ?? "Manage Tracks Server connection"}
+              onClick={() => setServerDialogOpen(true)}
+            >
+              <span className={`health-dot live-${runtimeContext.remote?.connected === false && runtimeContext.remote.configured ? "reconnecting" : liveState}`} />
+              {runtimeContext.remote?.connected
+                ? "Server connected"
+                : runtimeContext.remote?.configured
+                  ? "Server disconnected"
+                  : "Connect server"}
+              <Icon name="disclosure" size="xs" />
+            </button>
+          ) : (
+            <span><span className={`health-dot live-${liveState}`} />Server view</span>
+          )}
           <span>{library ? `${library.total.toLocaleString()} sessions` : "—"}</span>
         </footer>
         </aside>
       </> : null}
 
-      <main className="workspace">
+      <main className="workspace" ref={workspaceRef}>
         <header className="workspace-header">
           <div className="workspace-identity">
             {!sharedView ? <IconButton label="Expand session library" icon="sidebar" onClick={openLibrary} /> : null}
@@ -1782,15 +2152,53 @@ export function App() {
                 onClear={() => setTraceQuery("")}
               />
             ) : null}
-            {sessionShareUrl ? <CopyButton value={sessionShareUrl} label="Copy session link" className="mobile-share-button" /> : null}
+            {sessionShareUrl && track ? (
+              <LiveShareButton
+                trackId={track.summary.id}
+                fallbackUrl={sessionShareUrl}
+                sharedView={sharedView}
+                allowLocalFallback={runtimeContext?.surface === "local"}
+                className="mobile-share-button"
+              />
+            ) : null}
+            {runtimeContext?.surface === "cloud-device" ? (
+              <button
+                className="copy-button server-owner-logout"
+                type="button"
+                disabled={ownerLogoutBusy}
+                onClick={() => {
+                  if (ownerLogoutBusy) return;
+                  setOwnerLogoutBusy(true);
+                  void logoutTracksOwner()
+                    .then(() => window.location.assign("/"))
+                    .catch((error: unknown) => {
+                      setTrackError(error instanceof Error ? error.message : "Could not log out.");
+                      setOwnerLogoutBusy(false);
+                    });
+                }}
+              >
+                <Icon name="logout" size="xs" />
+                <span>{ownerLogoutBusy ? "Logging out…" : "Log out"}</span>
+              </button>
+            ) : null}
           </div>
         </header>
 
-        <div className="workspace-body" data-mode={mode}>
+        <div className="workspace-body" data-mode={mode} data-empty={showingEmptyPanel}>
           <section className="track-column" aria-busy={loadingTrack}>
-            {!selectedId && sharedView ? (
+            {!selectedId && sharedView && runtimeContext ? (
               <EmptyPanel icon="link" title="This session link is incomplete">
                 Open a link that includes one exact session.
+              </EmptyPanel>
+            ) : null}
+            {selectedId && sharedView && runtimeContext?.online === false && !track ? (
+              <EmptyPanel brand icon="link" title="This shared link is inactive">
+                This session is unavailable right now. Ask the sender to reactivate the link, then try again.
+              </EmptyPanel>
+            ) : null}
+            {runtimeContext?.surface === "cloud-device" && runtimeContext.online === false && !track ? (
+              <EmptyPanel icon="session" title="This device is offline">
+                Reconnect it from Tracks or run <code>tracks connect</code> to continue.
               </EmptyPanel>
             ) : null}
             {!selectedId && library?.sourceState === "missing" ? (
@@ -1800,7 +2208,7 @@ export function App() {
             ) : null}
             {!selectedId && library?.sourceState === "ready" ? (
               <EmptyPanel icon="session" title="No sessions yet">
-                Claude Code sessions will appear here without being copied or modified.
+                Claude Code sessions will appear here automatically.
               </EmptyPanel>
             ) : null}
             {loadingTrack && !track ? (
@@ -1809,10 +2217,16 @@ export function App() {
                 {Array.from({ length: 5 }, (_, index) => <div className="entry-skeleton" key={index} />)}
               </div>
             ) : null}
-            {trackError ? <div className="track-error"><Icon name="error" />{trackError}</div> : null}
+            {trackError && !(sharedView && runtimeContext?.online === false) ? <div className="track-error"><Icon name="error" />{trackError}</div> : null}
             {track ? (
-              <>
-                <div className="track-loaded" key={track.summary.id}>
+              <Fragment key={`track:${track.summary.id}`}>
+                {sharedView && runtimeContext?.online === false ? (
+                  <div className="diagnostic-banner live-share-offline">
+                    <Icon name="warning" />
+                    <span>The source device is offline. Reconnect it to load new updates.</span>
+                  </div>
+                ) : null}
+                <div className="track-loaded">
                   <header className="track-hero">
                     <div className="track-eyebrow">
                       {track.summary.parentTrackId ? (
@@ -1903,6 +2317,7 @@ export function App() {
                               setMode("full");
                             } else {
                               setActiveFilters(new Set(ALL_ENTRY_FILTERS));
+                              setActiveMessageRoleFilters(new Set(ALL_MESSAGE_ROLE_FILTERS));
                               setActiveToolFilters(new Set(ALL_TOOL_FILTERS));
                               setActiveActivityFilters(new Set(ALL_ACTIVITY_FILTERS));
                             }
@@ -1923,8 +2338,8 @@ export function App() {
                     ) : null}
                   </div>
                 </div>
-                <TraceJumpNavigation key={track.summary.id} />
-              </>
+                <TraceJumpNavigation />
+              </Fragment>
             ) : null}
           </section>
           {track ? (
@@ -1936,22 +2351,28 @@ export function App() {
               traceOrder={traceOrder}
               shareUrl={sessionShareUrl!}
               sharedView={sharedView}
+              surface={runtimeContext?.surface ?? null}
               activeFilters={activeFilters}
+              activeMessageRoleFilters={activeMessageRoleFilters}
               activeToolFilters={activeToolFilters}
               activeActivityFilters={activeActivityFilters}
               filterCounts={filterCounts}
+              messageRoleFilterCounts={messageRoleFilterCounts}
               toolFilterCounts={toolFilterCounts}
               activityFilterCounts={activityFilterCounts}
               onToggleFilter={toggleFilter}
+              onToggleMessageRoleFilter={toggleMessageRoleFilter}
               onToggleToolFilter={toggleToolFilter}
               onToggleActivityFilter={toggleActivityFilter}
               onResetFilters={() => {
                 setActiveFilters(new Set(ALL_ENTRY_FILTERS));
+                setActiveMessageRoleFilters(new Set(ALL_MESSAGE_ROLE_FILTERS));
                 setActiveToolFilters(new Set(ALL_TOOL_FILTERS));
                 setActiveActivityFilters(new Set(ALL_ACTIVITY_FILTERS));
               }}
               onClearFilters={() => {
                 setActiveFilters(new Set());
+                setActiveMessageRoleFilters(new Set());
                 setActiveActivityFilters(new Set());
               }}
               onTraceOrderChange={setTraceOrder}
@@ -1959,6 +2380,14 @@ export function App() {
           ) : null}
         </div>
       </main>
+      {runtimeContext?.surface === "local" ? (
+        <ServerConnectionDialog
+          open={serverDialogOpen}
+          remote={runtimeContext.remote}
+          onClose={() => setServerDialogOpen(false)}
+          onChanged={handleRemoteChanged}
+        />
+      ) : null}
     </div>
   );
 }

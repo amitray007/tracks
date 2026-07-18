@@ -20,5 +20,7 @@ describe("session share URLs", () => {
     expect(isSessionShareUrl("http://127.0.0.1:4317/?share=session&track=claude%3Aone")).toBe(true);
     expect(isSessionShareUrl("http://127.0.0.1:4317/?share=session")).toBe(false);
     expect(isSessionShareUrl("http://127.0.0.1:4317/?track=claude%3Aone")).toBe(false);
+    expect(isSessionShareUrl("https://tracks.example/s/019d2c64-2526-7f8a-b289-a1f9ad67c808#secret"))
+      .toBe(true);
   });
 });

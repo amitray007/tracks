@@ -1,0 +1,35 @@
+name: tracks
+
+services:
+  cloud:
+    build:
+      context: .
+      dockerfile: apps/cloud/Dockerfile
+    image: tracks-cloud:local
+    environment:
+      TRACKS_CLOUD_HOST: 0.0.0.0
+      TRACKS_CLOUD_PORT: 8787
+      TRACKS_OWNER_TOKEN: ${TRACKS_OWNER_TOKEN:?Set TRACKS_OWNER_TOKEN to a random value with at least 32 characters}
+      TRACKS_DEVICE_TOKEN: ${TRACKS_DEVICE_TOKEN:?Set TRACKS_DEVICE_TOKEN to a different random value with at least 32 characters}
+      TRACKS_CLOUD_PUBLIC_URL: ${TRACKS_CLOUD_PUBLIC_URL:-}
+    ports:
+      - "${TRACKS_CLOUD_BIND:-127.0.0.1}:${TRACKS_CLOUD_PORT:-8787}:8787"
+    init: true
+    read_only: true
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8787/api/health').then((response) => { if (!response.ok) process.exit(1) }).catch(() => process.exit(1))"
+      interval: 15s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true

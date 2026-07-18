@@ -27,9 +27,12 @@ Project share never means “silently publish every current and future local ses
 | Portable static bundle | Anyone who receives/hosts the files | No runtime API or remote dependency required | P0 |
 | Explicit LAN/tailnet host | Approved network peers | Non-loopback bind plus authentication | P1 after threat review |
 | Preferred managed publish target | Public/direct/private hosted URL | Explicit upload of approved bundle | P1/MVP follow-up |
+| Device-backed live share | Public/direct/private scoped URL | Routes bounded data from a connected source device; no server transcript storage | P1 after authentication and relay hardening |
 | Additional publisher integrations | Destination-specific | Same restricted publisher contract | Later |
 
 The UI labels local links as local-only so they are not mistaken for shareable public URLs.
+
+Live sharing and static publishing solve different jobs. A live share can follow an active session without uploading a durable copy, but it shows an offline state when the source device disconnects. A static bundle is an explicitly reviewed immutable copy that remains available without the source device. Tracks presents this tradeoff before link creation rather than silently switching modes. See [Live sharing and hosted server](live-sharing.md).
 
 ## UI-first sharing workflow
 
@@ -93,6 +96,8 @@ Tracks separates export generation from publishing:
 The publisher contract accepts files plus declared visibility; it does not receive unrestricted source or index access. Each hosting integration declares authentication, size limits, retention, visibility semantics, update/delete behavior, and whether access control is real or merely link obscurity.
 
 The first viewer release can be useful without a managed backend: a user can generate a static directory/ZIP and deploy it to a preferred static host. The sharing vision is complete only after one preferred publisher provides a short, explicit path to public/direct/private URLs. No upload occurs by default, and local viewing never requires publisher authentication.
+
+Tracks Server is a fourth, distinct boundary: a rendezvous and request relay for online devices. Its owner dashboard may enumerate connected devices after authentication, but the server does not ingest or persist their libraries. A live viewer receives only the exact share-scoped projections requested from the currently connected device. It is not a publisher and never receives unrestricted source/index access.
 
 ## Updating and revoking shares
 

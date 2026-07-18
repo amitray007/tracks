@@ -16,6 +16,7 @@ The initial and current implementation focus is Claude Code. The ingestion and c
 - Start from a small CLI that launches/reuses the local service and opens the browser UI.
 - Offer compact and full views of the same evidence.
 - Turn one session or a reviewed project session set into a sanitized static share bundle that can be hosted independently.
+- Optionally connect the local agent to a self-hosted Tracks Server for an online-device dashboard and live, device-backed session sharing without copying sessions into server storage.
 
 The first Claude Code vertical slice is now runnable. It discovers top-level local sessions, normalizes bounded transcript slices, serves them through a loopback API, and renders compact/full views in the web UI.
 
@@ -39,13 +40,39 @@ pnpm dev:plain
 
 This starts the web UI at `http://127.0.0.1:4317` and the API at `http://127.0.0.1:4318`.
 
-The foreground CLI path serves the production web build and opens an ephemeral loopback URL:
+The hosted server can also run directly during development:
+
+```sh
+pnpm cloud:dev
+```
+
+It starts an isolated server dashboard at `http://127.0.0.1:8787` and prints separate temporary owner and device tokens. Connected devices appear in real time and open the shared session viewer through bounded, on-demand relay requests.
+
+For a self-hosted bootstrap deployment:
+
+```sh
+cp .env.example .env
+# Generate different TRACKS_OWNER_TOKEN and TRACKS_DEVICE_TOKEN values with:
+# openssl rand -hex 32
+docker compose up --build
+```
+
+Compose binds the dashboard to `127.0.0.1:8787` by default, runs the container read-only as a non-root user, and mounts no session or database volume. The owner token is exchanged for an HttpOnly browser session; the device token can connect CLI agents but cannot read the owner dashboard. Put Tracks behind HTTPS and set `TRACKS_CLOUD_PUBLIC_URL` before changing the bind address.
+
+The installed-style CLI uses one background agent for the loopback web server, Claude source watcher, and optional outbound server connection:
 
 ```sh
 pnpm build
-pnpm tracks -- doctor
-pnpm tracks -- serve --no-open
+pnpm tracks doctor
+pnpm tracks web start
+pnpm tracks status
+
+# Optional self-hosted connection. Use --token-stdin to avoid shell history.
+printf '%s' "$TRACKS_DEVICE_TOKEN" | \
+  pnpm tracks login --server http://127.0.0.1:8787 --token-stdin
 ```
+
+`tracks login` verifies and saves the device token without starting either web or hosted presence. `tracks connect --server … --token-stdin` performs one-step first-time setup and connection, while plain `tracks connect` resumes saved access. The local viewer exposes the same connect, disconnect, and logout controls without returning the saved token to the browser. `tracks web start` and `tracks web stop` change only the loopback viewer; `tracks connect` and `tracks connect stop` change only hosted presence. The shared background agent remains alive while either module needs it. `tracks logout` disconnects, removes saved server access, removes the device from the server dashboard, and makes its device-backed live links report offline until it reconnects. The compatibility command `tracks serve --no-open` remains available for a foreground process.
 
 ## Documentation
 
@@ -58,6 +85,7 @@ Start with the [documentation index](docs/README.md).
 - [Canonical session model](docs/architecture/session-model.md)
 - [CLI and local runtime](docs/architecture/cli-runtime.md)
 - [Sharing and hosting](docs/architecture/sharing-hosting.md)
+- [Live sharing and hosted server](docs/architecture/live-sharing.md)
 - [Initial runtime decision](docs/architecture/decisions/0001-typescript-loopback-runtime.md)
 - [Claude Code provider evidence](docs/providers/claude-code.md)
 - [Design documentation](docs/design/README.md)
@@ -73,7 +101,9 @@ Provider data is normalized before it reaches the UI:
 
 The installed product flow is:
 
-    tracks CLI -> loopback service/index -> compact/full web UI -> reviewed static share bundle -> optional host
+    tracks CLI -> loopback service/index -> compact/full local web UI
+                                    \-> optional outbound connection -> Tracks Server -> server web/live share
+                                    \-> reviewed static share bundle -> optional static host
 
 Provider adapters own discovery, parsing, normalization, capabilities, and raw evidence references. Shared UI components own chronology, navigation, accessibility, and rendering. Provider plugins do not inject arbitrary UI code in the initial model.
 
@@ -81,6 +111,6 @@ Shared components render a documented minimum canonical shape and treat richer p
 
 ## Status
 
-Implemented now: a pnpm/TypeScript workspace, canonical runtime schemas, provider SDK boundary, bounded Claude Code JSONL discovery/parsing, a tested Node loopback API, foreground CLI, production web serving, responsive React session library, compact/full views, and the semantic Hugeicons Free registry.
+Implemented now: a pnpm/TypeScript workspace, canonical runtime schemas, provider SDK boundary, bounded Claude Code JSONL discovery/parsing, a tested Node loopback API, a single background CLI agent, production web serving, responsive compact/full views, the semantic Hugeicons Free registry, authenticated outbound device connections, a versioned bounded relay protocol, a hosted online-device view, scoped per-session live links, explicit source-offline behavior, and a non-root/read-only Compose deployment.
 
-The implementation intentionally remains a vertical slice. Background CLI lifecycle, SQLite/FTS, live watching, revision-checked raw inspection, rich Markdown/diff rendering, redaction/export, and sharing/hosting are still roadmap work. Portless is pinned for development only and is not a shipped runtime dependency.
+The implementation intentionally remains a vertical slice. The self-hosted bootstrap uses one deployment token rather than production account/device authorization, and live-share routing metadata is process-memory-only. Revocation/expiry controls, project-scoped live shares, OS credential storage, SQLite/FTS, revision-checked raw inspection, reviewed static export, and production multi-instance hardening remain roadmap work. Portless is pinned for development only and is not a shipped runtime dependency.
