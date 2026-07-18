@@ -1487,14 +1487,22 @@ export function App() {
         const currentTrack = trackRef.current;
         const currentOrder = traceOrderRef.current;
         const libraryQuery = libraryQueryRef.current;
+        const needsTrackReload = Boolean(trackId && currentTrack?.summary.id !== trackId);
         let trackUpdate: Promise<Track | null> = Promise.resolve(null);
-        if (trackId && currentTrack?.summary.id === trackId) {
-          if (currentOrder === "latest") {
+        if (trackId) {
+          if (needsTrackReload) {
+            setLoadingTrack(true);
+            setTrackError(null);
+            trackUpdate = getTrackPage(trackId, {
+              direction: currentOrder === "latest" ? "backward" : "forward",
+              limit: TRACE_PAGE_SIZE,
+            });
+          } else if (currentTrack && currentOrder === "latest") {
             trackUpdate = getTrackPage(trackId, {
               direction: "backward",
               limit: Math.min(Math.max(currentTrack.entries.length, TRACE_PAGE_SIZE), 2_000),
             });
-          } else if (!currentTrack.truncated) {
+          } else if (currentTrack && !currentTrack.truncated) {
             const startSequence = (currentTrack.entries.at(-1)?.sequence ?? -1) + 1;
             trackUpdate = getTrackPage(trackId, { startSequence, limit: TRACE_PAGE_SIZE });
           }
@@ -1522,13 +1530,22 @@ export function App() {
             });
           }
           if (nextTrack && selectedIdRef.current === trackId) {
+            setTrackError(null);
             setTrack((loaded) => {
               if (!loaded || loaded.summary.id !== trackId) return nextTrack;
               return currentOrder === "latest" ? nextTrack : mergeTrackPage(loaded, nextTrack);
             });
           }
-        }).catch(() => {
-          if (!closed) setLiveState("reconnecting");
+        }).catch((error: unknown) => {
+          if (closed) return;
+          setLiveState("reconnecting");
+          if (needsTrackReload && selectedIdRef.current === trackId) {
+            setTrackError(error instanceof Error ? error.message : "Could not reload this session.");
+          }
+        }).finally(() => {
+          if (!closed && needsTrackReload && selectedIdRef.current === trackId) {
+            setLoadingTrack(false);
+          }
         });
       }, 90);
     };
@@ -1547,7 +1564,13 @@ export function App() {
           const online = Boolean(data && typeof data === "object" && "online" in data && data.online);
           setRuntimeContext((context) => context ? { ...context, online } : context);
           setLiveState(online ? "live" : "reconnecting");
-          if (online) refreshLiveData();
+          if (online) {
+            if (sharedView && !trackRef.current && selectedIdRef.current) {
+              setLoadingTrack(true);
+              setTrackError(null);
+            }
+            refreshLiveData();
+          }
           else if (sharedView) {
             setTrack(null);
             setTrackError(null);
