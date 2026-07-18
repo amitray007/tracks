@@ -2,6 +2,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -1188,6 +1189,7 @@ export function App() {
   const [loadingLibraryMore, setLoadingLibraryMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const workspaceRef = useRef<HTMLElement>(null);
   const selectedIdRef = useRef<string | null>(selectedId);
   const libraryRef = useRef<TrackLibraryResponse | null>(library);
   const libraryQueryRef = useRef(debouncedQuery);
@@ -1312,6 +1314,10 @@ export function App() {
   useEffect(() => {
     setTraceQuery("");
     setTraceSearchMode("text");
+  }, [selectedId]);
+
+  useLayoutEffect(() => {
+    workspaceRef.current?.scrollTo({ top: 0 });
   }, [selectedId]);
 
   useEffect(() => {
@@ -1814,7 +1820,7 @@ export function App() {
         </aside>
       </> : null}
 
-      <main className="workspace">
+      <main className="workspace" ref={workspaceRef}>
         <header className="workspace-header">
           <div className="workspace-identity">
             {!sharedView ? <IconButton label="Expand session library" icon="sidebar" onClick={openLibrary} /> : null}
