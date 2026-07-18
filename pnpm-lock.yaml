@@ -99,8 +99,8 @@ importers:
         specifier: 1.1.9
         version: 1.1.9(react@19.2.7)
       '@lobehub/icons-static-svg':
-        specifier: ^1.93.0
-        version: 1.93.0
+        specifier: ^1.94.0
+        version: 1.94.0
       '@tracks/core-model':
         specifier: workspace:*
         version: link:../../packages/core-model
@@ -373,8 +373,8 @@ packages:
   '@jridgewell/sourcemap-codec@1.5.5':
     resolution: {integrity: sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==}
 
-  '@lobehub/icons-static-svg@1.93.0':
-    resolution: {integrity: sha512-in3w3Epepw4h/Opw0zIyOSVrABioI/QDDyxINRl/kaVkIfKlGms+RVtRH3rXtnALpCEIRVm/kJo8bphoT59Bow==}
+  '@lobehub/icons-static-svg@1.94.0':
+    resolution: {integrity: sha512-Inx1TYkjLH6YeHOIHeVW9+OM/xxRnk8TmcQVKquFUDBmE3X9sUuRGt7kALrrDBNNAbrWz7Qq6fAiFj9E9Mmw9Q==}
 
   '@mermaid-js/parser@1.2.0':
     resolution: {integrity: sha512-oYPyv8A4As1yH5Bx+04iQEQxXuIQDe0GKCNSRgao6z8AM9jixXIfP0vsppRLvGf+nKIOb9/LdpWA4YuJiVvESA==}
@@ -1925,7 +1925,7 @@ snapshots:
 
   '@jridgewell/sourcemap-codec@1.5.5': {}
 
-  '@lobehub/icons-static-svg@1.93.0': {}
+  '@lobehub/icons-static-svg@1.94.0': {}
 
   '@mermaid-js/parser@1.2.0':
     dependencies:
