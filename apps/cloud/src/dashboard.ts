@@ -36,9 +36,8 @@ export const DASHBOARD_HTML = `<!doctype html>
             <p>Enter the owner token to manage connected devices.</p>
           </div>
           <form id="access-form" method="post" action="/">
-            <label for="access-token">Owner token</label>
             <div class="field-row">
-              <input id="access-token" name="token" type="password" autocomplete="current-password" placeholder="Paste owner token" required minlength="32" />
+              <input id="access-token" name="token" type="password" autocomplete="current-password" placeholder="Paste owner token" aria-label="Owner token" required minlength="32" />
               <button type="submit"><span>Connect</span></button>
             </div>
             <p class="error" id="access-error" role="alert" aria-live="polite"></p>
@@ -132,7 +131,6 @@ main { width: min(940px, calc(100% - 40px)); margin: 0 auto; padding: 64px 0; }
 .access-heading h1 { margin: 9px 0 7px; color: var(--text); font-size: 21px; line-height: 1.2; letter-spacing: -.025em; }
 .access-heading > p:last-child { margin: 0; color: var(--text-muted); font-size: 11px; line-height: 1.55; }
 .access-panel form { margin-top: 24px; }
-.access-panel label { display: block; margin-bottom: 7px; color: #aaaeb4; font-size: 10px; font-weight: 600; }
 .field-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; }
 .field-row input, .field-row button { height: 36px; border-radius: 5px; }
 .field-row input { min-width: 0; padding: 0 11px; color: #d8d9db; background: #0f1011; border: 1px solid #303236; outline: 0; font-family: "SFMono-Regular", Consolas, monospace; font-size: 10px; }
