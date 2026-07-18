@@ -209,6 +209,13 @@ export async function createLiveSessionShare(trackId: string): Promise<{ url: st
   throw new Error("Tracks returned an incomplete live link.");
 }
 
+export async function logoutTracksOwner(): Promise<void> {
+  if (apiRoute().surface !== "cloud-device") {
+    throw new Error("Owner sign-out is available only in the server device viewer.");
+  }
+  await fetchJson("/api/auth/logout", undefined, { method: "POST" });
+}
+
 function parseRemoteConnectionSnapshot(value: unknown): RemoteConnectionSnapshot {
   if (!value || typeof value !== "object") {
     throw new Error("Tracks returned an invalid server connection state.");

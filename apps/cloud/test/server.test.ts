@@ -93,6 +93,8 @@ describe("Tracks cloud server", () => {
     const dashboardScript = await fetch(`${cloud.url}/dashboard.js`).then((response) => response.text());
     expect(() => new Function(dashboardScript)).not.toThrow();
     expect(dashboardScript).not.toContain("sessionStorage");
+    expect(dashboardScript).toContain("window.history.replaceState({}, '', '/')");
+    expect(dashboardScript).not.toContain("window.location.assign(next)");
   });
 
   it("shows only currently connected device metadata", async () => {

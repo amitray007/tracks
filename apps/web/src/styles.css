@@ -822,6 +822,8 @@ code, pre, kbd {
 .workspace-identity { min-width: 0; flex: 1 1 auto; gap: 6px; }
 .workspace-identity > .icon-button { display: none; }
 .workspace-actions { min-width: 0; flex: 0 0 auto; gap: 7px; }
+.server-owner-logout { min-height: 30px; padding-inline: 8px; color: #888c92; border: 1px solid #2c2e31; }
+.server-owner-logout:disabled { cursor: wait; opacity: 0.5; }
 
 .trace-search {
   width: clamp(190px, 23vw, 280px);

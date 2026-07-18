@@ -331,10 +331,8 @@ async function showDashboard() {
   setConnecting(true);
   try {
     await loadDevices();
-    const next = new URL(window.location.href).searchParams.get('next');
-    if (next && next.startsWith('/device/') && !next.startsWith('//')) {
-      window.location.assign(next);
-      return;
+    if (new URL(window.location.href).searchParams.has('next')) {
+      window.history.replaceState({}, '', '/');
     }
     accessPanel.hidden = true;
     devicesSection.hidden = false;

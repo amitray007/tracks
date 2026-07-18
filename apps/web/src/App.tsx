@@ -24,6 +24,7 @@ import {
   getTrackLibrary,
   getRuntimeContext,
   getViewerIdentity,
+  logoutTracksOwner,
   subscribeToLiveEvents,
   type TrackLibraryResponse,
   type RuntimeContext,
@@ -1328,6 +1329,7 @@ export function App() {
   const [loadingTrackMore, setLoadingTrackMore] = useState(false);
   const [loadingLibraryMore, setLoadingLibraryMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [ownerLogoutBusy, setOwnerLogoutBusy] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const workspaceRef = useRef<HTMLElement>(null);
   const selectedIdRef = useRef<string | null>(selectedId);
@@ -2006,6 +2008,26 @@ export function App() {
                 allowLocalFallback={runtimeContext?.surface === "local"}
                 className="mobile-share-button"
               />
+            ) : null}
+            {runtimeContext?.surface === "cloud-device" ? (
+              <button
+                className="copy-button server-owner-logout"
+                type="button"
+                disabled={ownerLogoutBusy}
+                onClick={() => {
+                  if (ownerLogoutBusy) return;
+                  setOwnerLogoutBusy(true);
+                  void logoutTracksOwner()
+                    .then(() => window.location.assign("/"))
+                    .catch((error: unknown) => {
+                      setTrackError(error instanceof Error ? error.message : "Could not log out.");
+                      setOwnerLogoutBusy(false);
+                    });
+                }}
+              >
+                <Icon name="logout" size="xs" />
+                <span>{ownerLogoutBusy ? "Logging out…" : "Log out"}</span>
+              </button>
             ) : null}
           </div>
         </header>
