@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { appendFile, copyFile, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { appendFile, copyFile, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 const execFileAsync = promisify(execFile);
 const cliEntry = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "index.js");
+const cliPackagePath = join(dirname(fileURLToPath(import.meta.url)), "..", "package.json");
 const fixturePath = join(
   dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -110,7 +111,10 @@ describe("Tracks CLI end to end", () => {
   it("reports the installed CLI version", async () => {
     const stateDirectory = await mkdtemp(join(tmpdir(), "tracks-cli-state-"));
     stateDirectories.push(stateDirectory);
-    expect(await runCli(stateDirectory, ["--version"])).toBe("0.1.0");
+    const packageMetadata = JSON.parse(await readFile(cliPackagePath, "utf8")) as {
+      version: string;
+    };
+    expect(await runCli(stateDirectory, ["--version"])).toBe(packageMetadata.version);
   });
 
   it("starts, reports, and stops the background local web service", async () => {
