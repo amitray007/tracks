@@ -21,6 +21,7 @@ import {
   type TracksRuntimeState,
 } from "./config.js";
 import { normalizeServerUrl, validateServerToken, verifyServerAccess } from "./remote-access.js";
+import { resolveWebDirectory } from "./web-directory.js";
 
 const HELP = `Tracks — local and connected Claude Code session viewer
 
@@ -38,6 +39,16 @@ Usage:
 Local web and the hosted device connection are independent. Login only verifies
 and saves the device token; connect starts presence, and web starts the local viewer.
 Use TRACKS_STATE_DIR to isolate config/runtime state.`;
+
+async function readCliVersion(): Promise<string> {
+  const packageJson = JSON.parse(
+    await readFile(new URL("../package.json", import.meta.url), "utf8"),
+  ) as { version?: unknown };
+  if (typeof packageJson.version !== "string") {
+    throw new Error("Tracks could not read its installed version.");
+  }
+  return packageJson.version;
+}
 
 const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -269,6 +280,7 @@ async function runForegroundServe(arguments_: string[]): Promise<void> {
   const server = await startTracksServer({
     port: values.port === undefined ? config.web.port : parsePort(values.port),
     ...(values.source || config.sourceRoot ? { sourceRoot: values.source ?? config.sourceRoot! } : {}),
+    staticDirectory: await resolveWebDirectory(),
   });
   console.log(`Tracks is ready at ${server.url}`);
   await maybeOpen(server.url, shouldOpen);
@@ -529,6 +541,10 @@ async function runConfig(arguments_: string[]): Promise<void> {
 async function main(): Promise<void> {
   const raw = process.argv.slice(2);
   while (raw[0] === "--") raw.shift();
+  if (raw.length === 1 && (raw[0] === "--version" || raw[0] === "-V")) {
+    console.log(await readCliVersion());
+    return;
+  }
   if (raw.includes("--help") || raw.includes("-h") || raw[0] === "help") {
     console.log(HELP);
     return;

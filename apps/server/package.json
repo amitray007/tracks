@@ -1,6 +1,6 @@
 {
   "name": "@tracks/server",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "license": "MIT",
   "private": true,
   "type": "module",
@@ -12,6 +12,9 @@
       "default": "./dist/index.js"
     }
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "dev": "tsx watch src/dev.ts",
     "build": "tsc -p tsconfig.build.json",

@@ -37,6 +37,7 @@ Tracks is a local-first viewer for AI coding-agent sessions. It begins with Clau
 ### Delivery
 
 - [Roadmap](roadmap.md) — staged implementation plan from Claude Code MVP to a provider ecosystem.
+- [Releasing the CLI](releasing.md) — versioning, release artifacts, the public Homebrew mirror, and verification.
 
 ## Shared terminology
 

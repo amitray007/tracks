@@ -1,6 +1,6 @@
 {
   "name": "tracks",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Local-first viewer and sharing tool for AI coding-agent sessions",
   "license": "MIT",
   "private": true,
@@ -34,6 +34,7 @@
     "build:packages": "pnpm --filter './packages/**' --sort build",
     "cloud:dev": "pnpm --filter @tracks/cloud dev",
     "cloud:start": "pnpm --filter @tracks/cloud start",
+    "release:cli": "./scripts/package-cli.sh",
     "tracks": "pnpm --filter @tracks/cli dev"
   },
   "devDependencies": {

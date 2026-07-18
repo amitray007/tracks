@@ -23,6 +23,7 @@ const fixturePath = join(
 );
 const OWNER_TOKEN = "tracks-cli-owner-token-with-at-least-32-characters";
 const DEVICE_TOKEN = "tracks-cli-device-token-with-at-least-32-characters";
+const E2E_TEST_TIMEOUT = 15_000;
 const temporaryRoots: string[] = [];
 const clouds: RunningTracksCloud[] = [];
 const stateDirectories: string[] = [];
@@ -106,6 +107,12 @@ afterEach(async () => {
 });
 
 describe("Tracks CLI end to end", () => {
+  it("reports the installed CLI version", async () => {
+    const stateDirectory = await mkdtemp(join(tmpdir(), "tracks-cli-state-"));
+    stateDirectories.push(stateDirectory);
+    expect(await runCli(stateDirectory, ["--version"])).toBe("0.1.0");
+  });
+
   it("starts, reports, and stops the background local web service", async () => {
     const sourceRoot = await createSource();
     const stateDirectory = await mkdtemp(join(tmpdir(), "tracks-cli-state-"));
@@ -127,7 +134,7 @@ describe("Tracks CLI end to end", () => {
 
     expect(JSON.parse(await runCli(stateDirectory, ["web", "stop", "--json"])))
       .toEqual({ stopped: true });
-  });
+  }, E2E_TEST_TIMEOUT);
 
   it("keeps local web and the hosted connection independently operable", async () => {
     const sourceRoot = await createSource();
@@ -200,7 +207,7 @@ describe("Tracks CLI end to end", () => {
       running: false,
       remote: { configured: true, connected: false },
     });
-  });
+  }, E2E_TEST_TIMEOUT);
 
   it("connects a device, relays a session, creates a live link, and reports offline", async () => {
     const sourceRoot = await createSource();
@@ -353,5 +360,5 @@ describe("Tracks CLI end to end", () => {
       }).then((response) => response.json()) as { online: boolean };
       return value.online ? null : value;
     });
-  });
+  }, E2E_TEST_TIMEOUT);
 });

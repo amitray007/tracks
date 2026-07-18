@@ -1,0 +1,122 @@
+name: Release CLI
+
+on:
+  push:
+    tags:
+      - "tracks-cli-v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-cli-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out Tracks
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.33.2 --activate
+      - name: Validate release version
+        id: version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG#tracks-cli-v}"
+          PACKAGE_VERSION="$(node -p "require('./apps/cli/package.json').version")"
+          test "$TAG" = "tracks-cli-v$VERSION"
+          test "$VERSION" = "$PACKAGE_VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Test workspace
+        run: pnpm check
+      - name: Package CLI and viewer
+        run: pnpm release:cli "${{ steps.version.outputs.version }}"
+      - name: Create Tracks release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" \
+              "release/tracks-cli-$VERSION.tgz" \
+              "release/tracks-cli-$VERSION.tgz.sha256" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create "$TAG" \
+              "release/tracks-cli-$VERSION.tgz" \
+              "release/tracks-cli-$VERSION.tgz.sha256" \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --title "Tracks CLI v$VERSION" \
+              --generate-notes
+          fi
+      - name: Compute artifact checksum
+        id: checksum
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: echo "sha256=$(cut -d ' ' -f 1 "release/tracks-cli-$VERSION.tgz.sha256")" >> "$GITHUB_OUTPUT"
+      - name: Check out Homebrew tap
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: amitray007/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+      - name: Publish public tap release
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if gh release view "$TAG" --repo amitray007/homebrew-tap >/dev/null 2>&1; then
+            gh release upload "$TAG" \
+              "release/tracks-cli-$VERSION.tgz" \
+              "release/tracks-cli-$VERSION.tgz.sha256" \
+              --repo amitray007/homebrew-tap \
+              --clobber
+          else
+            gh release create "$TAG" \
+              "release/tracks-cli-$VERSION.tgz" \
+              "release/tracks-cli-$VERSION.tgz.sha256" \
+              --repo amitray007/homebrew-tap \
+              --title "Tracks CLI v$VERSION" \
+              --notes "Install with \`brew install amitray007/tap/tracks\`. Source: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
+          fi
+      - name: Update Homebrew formula
+        env:
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA256: ${{ steps.checksum.outputs.sha256 }}
+        run: |
+          URL="https://github.com/amitray007/homebrew-tap/releases/download/$TAG/tracks-cli-$VERSION.tgz"
+          sed \
+            -e "s|{{VERSION}}|$VERSION|g" \
+            -e "s|{{URL}}|$URL|g" \
+            -e "s|{{SHA256}}|$SHA256|g" \
+            scripts/tracks-formula.template.rb > homebrew-tap/Formula/tracks.rb
+          cd homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/tracks.rb
+          if git diff --cached --quiet; then
+            echo "Formula already points to Tracks $VERSION."
+          else
+            git commit -m "tracks: release $VERSION"
+            git push origin HEAD:main
+          fi

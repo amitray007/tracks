@@ -21,6 +21,7 @@ import {
   type TracksRuntimeState,
 } from "./config.js";
 import { normalizeServerUrl, validateServerToken, verifyServerAccess } from "./remote-access.js";
+import { resolveWebDirectory } from "./web-directory.js";
 
 async function acquireAgentLock(): Promise<void> {
   const paths = tracksPaths();
@@ -169,6 +170,7 @@ export async function runBackgroundAgent(): Promise<void> {
     server = await startTracksServer({
       port: config.web.port,
       catalog,
+      staticDirectory: await resolveWebDirectory(),
       onCatalogUpdated: (event) => connector?.notifyCatalogUpdated(event),
       remoteController: {
         connect: connectRemote,

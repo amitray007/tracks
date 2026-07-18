@@ -37,7 +37,32 @@ Tracks never invents unavailable provider data. Shared UI components render a do
 
 ## Quick start
 
-Tracks is currently run from source. You need Node.js 24 or newer and Corepack.
+Install the CLI and local viewer with Homebrew:
+
+```sh
+brew install amitray007/tap/tracks
+tracks doctor
+tracks web start
+```
+
+Tracks discovers Claude Code sessions from `~/.claude/projects` by default,
+starts a loopback-only web server, and opens the viewer. To use another source
+directory:
+
+```sh
+tracks web start --source /path/to/claude/projects
+```
+
+Upgrade or remove Tracks with the normal Homebrew lifecycle:
+
+```sh
+brew upgrade tracks
+brew uninstall tracks
+```
+
+### Run from source
+
+Source development requires Node.js 24 or newer and Corepack.
 
 ```sh
 git clone https://github.com/amitray007/tracks.git
@@ -51,12 +76,6 @@ pnpm tracks doctor
 pnpm tracks web start
 ```
 
-The CLI discovers Claude Code sessions from `~/.claude/projects` by default, starts a loopback-only web server, and opens the viewer. To use another source directory:
-
-```sh
-pnpm tracks web start --source /path/to/claude/projects
-```
-
 Stop or inspect the local viewer independently:
 
 ```sh
@@ -64,7 +83,7 @@ pnpm tracks web status
 pnpm tracks web stop
 ```
 
-The examples use `pnpm tracks` because the CLI is not yet published as a package. A packaged build exposes the same commands through the `tracks` executable.
+When running from source, replace `tracks` with `pnpm tracks` in the command examples below.
 
 ## Local and connected modes
 
@@ -86,8 +105,6 @@ Claude Code files ──> Tracks agent ──> local web viewer
 You never need the hosted server to use Tracks locally.
 
 ## CLI reference
-
-When working from this repository, prefix each command with `pnpm`.
 
 | Command | Purpose |
 | --- | --- |
