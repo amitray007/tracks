@@ -1883,14 +1883,14 @@ export function App() {
             ) : null}
             {trackError && !(sharedView && runtimeContext?.online === false) ? <div className="track-error"><Icon name="error" />{trackError}</div> : null}
             {track ? (
-              <>
+              <Fragment key={`track:${track.summary.id}`}>
                 {sharedView && runtimeContext?.online === false ? (
                   <div className="diagnostic-banner live-share-offline">
                     <Icon name="warning" />
                     <span>The source device is offline. Already loaded entries remain visible, but Tracks Server has no stored copy and cannot fetch updates.</span>
                   </div>
                 ) : null}
-                <div className="track-loaded" key={track.summary.id}>
+                <div className="track-loaded">
                   <header className="track-hero">
                     <div className="track-eyebrow">
                       {track.summary.parentTrackId ? (
@@ -2001,8 +2001,8 @@ export function App() {
                     ) : null}
                   </div>
                 </div>
-                <TraceJumpNavigation key={track.summary.id} />
-              </>
+                <TraceJumpNavigation />
+              </Fragment>
             ) : null}
           </section>
           {track ? (
