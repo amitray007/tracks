@@ -6,7 +6,6 @@ class Tracks < Formula
   desc "Local-first viewer and sharing tool for AI coding-agent sessions"
   homepage "https://github.com/amitray007/tracks"
   url "{{URL}}"
-  version "{{VERSION}}"
   sha256 "{{SHA256}}"
   license "MIT"
 
