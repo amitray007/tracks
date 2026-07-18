@@ -26,7 +26,7 @@ Priority levels:
 | CLI-06 | P1 | Provide bounded export/host automation that uses the same policy engine and artifacts as the web UI. |
 | CLI-07 | P0 | Use a pinned Portless development workflow with a stable same-origin `.localhost` URL; do not make Portless a shipped runtime dependency. |
 | CLI-08 | P0 | Provide `web`, `login`, `connect`, `logout`, `config`, and `status` command families while keeping detailed source, sharing, and device management in the web surfaces. |
-| CLI-09 | P0 | Keep local web and remote connection independently operable inside one user-owned background agent; a server or network failure must not interrupt local viewing. |
+| CLI-09 | P0 | Keep local web and remote connection independently operable inside one user-owned background agent: `web` must not enable hosted presence, `connect` must not bind or open local web, and a server or network failure must not interrupt local viewing. |
 
 ### Source management
 

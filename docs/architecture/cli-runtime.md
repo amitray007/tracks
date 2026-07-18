@@ -23,7 +23,7 @@ The installed CLI should stay small. The web UI owns detailed configuration and 
 | `tracks web [start]` | Start/reuse the background local service and open the local web UI |
 | `tracks web stop` | Stop local web/index watching without changing login state |
 | `tracks web status` | Report the local URL and local service health |
-| `tracks login` | Verify self-hosted server access, store it, and connect immediately; later replace the token input with browser/device authorization |
+| `tracks login` | Verify and store self-hosted server access without starting local web or remote presence; later replace token input with browser/device authorization |
 | `tracks connect [start]` | Resume saved server access, or accept `--server` plus a token for one-step first-time connection |
 | `tracks connect stop` | Disconnect the device while leaving local web available |
 | `tracks logout` | Disconnect, forget saved server access, remove the device from server presence, and leave local web available |
@@ -32,7 +32,7 @@ The installed CLI should stay small. The web UI owns detailed configuration and 
 
 `tracks` may remain an alias for `tracks web`. `serve` and `doctor` can remain development/diagnostic compatibility commands, but they are not separate product workflows. The CLI supports `--json` for lifecycle and automation commands and never prints unbounded session content by default.
 
-Current configuration includes the source root, loopback port, browser-open preference, server URL, generated device ID, device display name, and connection-enabled state. The bootstrap token is redacted from CLI output and held in a user-only `0600` file. Production refresh credentials must move to an OS credential store; auto-start and configurable reconnect policy are not implemented yet.
+Current configuration includes the source root, explicit local-web enabled state, loopback port, browser-open preference, server URL, generated device ID, device display name, and connection-enabled state. The bootstrap token is redacted from CLI output and held in a user-only `0600` file. Production refresh credentials must move to an OS credential store; auto-start and configurable reconnect policy are not implemented yet.
 
 The local web UI is the primary connection surface. Its loopback-only API accepts a server URL and token, asks the background agent to verify and store them, and never returns the token to browser JavaScript. Disconnect preserves saved access for quick reconnection; logout stops the outbound socket and deletes both server URL and token. The same lifecycle powers the CLI commands.
 
@@ -49,7 +49,7 @@ The local web UI is the primary connection surface. Its loopback-only API accept
 
 The browser and API use one loopback origin in production. Host and Origin checks reject non-loopback browser requests. A stronger per-launch same-user secret remains required before exposing additional mutation endpoints.
 
-Local web, source watching, and the optional remote connection are modules in one user-owned background agent. They share one source watcher and one index; remote connection failure does not interrupt local web. Auto-start is off until the user enables it explicitly, and status reports local and remote health separately.
+Local web, source watching, and the optional remote connection are modules in one user-owned background agent. They share one source watcher and one index, but neither module enables the other: `web start` only enables the loopback viewer, while `connect` only enables hosted presence. The agent may therefore run without a loopback listener when only the hosted connection is active. Remote connection failure does not interrupt local web. Auto-start is off until the user enables it explicitly, and status reports local and remote health separately.
 
 ## Web UI ownership
 

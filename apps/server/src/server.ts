@@ -30,6 +30,7 @@ export interface TracksServerOptions {
   host?: string;
   port?: number;
   sourceRoot?: string;
+  catalog?: TrackCatalog;
   staticDirectory?: string | false;
   onCatalogUpdated?(event: { changedFile: string | null; scannedAt: string; total: number }): void;
   remoteController?: TracksRemoteController;
@@ -169,7 +170,7 @@ export async function startTracksServer(
     throw new Error(`Tracks refuses to bind to non-loopback host: ${host}`);
   }
 
-  const catalog = new TrackCatalog(
+  const catalog = options.catalog ?? new TrackCatalog(
     options.sourceRoot ? { sourceRoot: options.sourceRoot } : {},
   );
   await catalog.refresh();

@@ -111,9 +111,10 @@ Credentials are user-owned local data stored through the OS credential store whe
 
 `tracks web` and `tracks connect` are two responsibilities inside one lightweight background agent, not two competing daemons:
 
-- The local web module owns loopback HTTP, indexing, watching, and browser launch.
+- The local web module owns loopback HTTP and browser launch.
 - The connection module owns authentication refresh, reconnect with jitter, and the server WebSocket.
-- Local web can run independently; the remote module is enabled only after login/connect.
+- The agent owns the shared index and source watcher so either surface can use current session data without requiring the other surface to run.
+- Local web and remote presence are independently enabled: login saves access, `connect` starts the remote module, and `web start` starts only the loopback viewer.
 - A single lock/state file prevents duplicate index writers and duplicate device connections.
 - `tracks status` reports local web and remote connection state separately.
 

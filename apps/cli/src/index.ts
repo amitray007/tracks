@@ -35,8 +35,8 @@ Usage:
   tracks doctor [--source <directory>] [--json]
   tracks serve [--source <directory>] [--port <number>] [--no-open]
 
-Local web does not require an account. Login verifies server access and connects
-this device; connect resumes saved access or performs the same one-step setup.
+Local web and the hosted device connection are independent. Login only verifies
+and saves server access; connect starts presence, and web starts the local viewer.
 Use TRACKS_STATE_DIR to isolate config/runtime state.`;
 
 const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -50,8 +50,12 @@ function parsePort(value: string | undefined): number {
   return parsed;
 }
 
-async function healthyRuntime(state: TracksRuntimeState | null): Promise<boolean> {
-  if (!state || !isProcessRunning(state.pid)) return false;
+function healthyAgent(state: TracksRuntimeState | null): boolean {
+  return Boolean(state && isProcessRunning(state.pid));
+}
+
+async function healthyWeb(state: TracksRuntimeState | null): Promise<boolean> {
+  if (!state || !healthyAgent(state) || !state.url) return false;
   try {
     const response = await fetch(`${state.url}/api/health`, {
       signal: AbortSignal.timeout(1_200),
@@ -65,11 +69,11 @@ async function healthyRuntime(state: TracksRuntimeState | null): Promise<boolean
   }
 }
 
-async function waitForRuntime(timeoutMs = 12_000): Promise<TracksRuntimeState> {
+async function waitForAgentRuntime(timeoutMs = 12_000): Promise<TracksRuntimeState> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const state = await readRuntimeState();
-    if (await healthyRuntime(state)) return state!;
+    if (state && healthyAgent(state)) return state;
     await sleep(100);
   }
   const paths = tracksPaths();
@@ -81,6 +85,26 @@ async function waitForRuntime(timeoutMs = 12_000): Promise<TracksRuntimeState> {
     // No agent log was created.
   }
   throw new Error(`Tracks did not become ready.${detail ? `\n${detail}` : ""}`);
+}
+
+async function waitForWebRuntime(timeoutMs = 12_000): Promise<TracksRuntimeState & { url: string }> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const state = await readRuntimeState();
+    if (await healthyWeb(state) && state?.url) return state as TracksRuntimeState & { url: string };
+    await sleep(100);
+  }
+  throw new Error("Tracks local web did not become ready.");
+}
+
+async function waitForWebDisabled(timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const state = await readRuntimeState();
+    if (!state || !healthyAgent(state) || state.url === null) return;
+    await sleep(80);
+  }
+  throw new Error("Tracks local web did not stop.");
 }
 
 async function signalAgent(signal: NodeJS.Signals): Promise<boolean> {
@@ -110,7 +134,7 @@ async function stopBackgroundAgent(): Promise<boolean> {
 
 async function launchBackgroundAgent(): Promise<TracksRuntimeState> {
   const current = await readRuntimeState();
-  if (await healthyRuntime(current)) return current!;
+  if (current && healthyAgent(current)) return current;
   if (current && !isProcessRunning(current.pid)) await removeRuntimeFiles();
 
   const paths = tracksPaths();
@@ -123,7 +147,7 @@ async function launchBackgroundAgent(): Promise<TracksRuntimeState> {
   });
   child.unref();
   closeSync(logDescriptor);
-  return waitForRuntime();
+  return waitForAgentRuntime();
 }
 
 async function maybeOpen(url: string, shouldOpen: boolean): Promise<void> {
@@ -152,7 +176,19 @@ async function runWeb(arguments_: string[]): Promise<void> {
   });
 
   if (action === "stop") {
-    const stopped = await stopBackgroundAgent();
+    const config = await readConfig();
+    const state = await readRuntimeState();
+    const wasRunning = await healthyWeb(state);
+    await writeConfig({ ...config, web: { ...config.web, enabled: false } });
+    if (state && healthyAgent(state)) {
+      if (config.cloud.connect) {
+        process.kill(state.pid, "SIGHUP");
+        await waitForWebDisabled();
+      } else {
+        await stopBackgroundAgent();
+      }
+    }
+    const stopped = wasRunning;
     if (values.json) console.log(JSON.stringify({ stopped }));
     else console.log(stopped ? "Tracks local web stopped." : "Tracks local web is not running.");
     return;
@@ -168,14 +204,19 @@ async function runWeb(arguments_: string[]): Promise<void> {
     ...previous,
     sourceRoot: values.source ?? previous.sourceRoot,
     web: {
+      enabled: true,
       port: values.port === undefined ? previous.web.port : parsePort(values.port),
       openBrowser: values.open,
     },
   };
   const needsRestart = previous.sourceRoot !== next.sourceRoot || previous.web.port !== next.web.port;
+  const existing = await readRuntimeState();
+  const wasAgentRunning = healthyAgent(existing);
   await writeConfig(next);
-  if (needsRestart && await healthyRuntime(await readRuntimeState())) await stopBackgroundAgent();
-  const state = await launchBackgroundAgent();
+  if (needsRestart && wasAgentRunning) await stopBackgroundAgent();
+  await launchBackgroundAgent();
+  if (wasAgentRunning && !needsRestart && existing) process.kill(existing.pid, "SIGHUP");
+  const state = await waitForWebRuntime();
   if (values.json) console.log(JSON.stringify({ running: true, url: state.url, pid: state.pid }));
   else console.log(`Tracks is ready at ${state.url}`);
   await maybeOpen(state.url, values.open);
@@ -258,9 +299,11 @@ async function waitForRemoteConnection(state: TracksRuntimeState): Promise<Track
 }
 
 async function startRemoteConnection(config: TracksConfig): Promise<TracksRuntimeState> {
+  const existing = await readRuntimeState();
+  const wasAgentRunning = healthyAgent(existing);
   await writeConfig({ ...config, cloud: { ...config.cloud, connect: true } });
   const state = await launchBackgroundAgent();
-  process.kill(state.pid, "SIGHUP");
+  if (wasAgentRunning) process.kill(state.pid, "SIGHUP");
   return waitForRemoteConnection(state);
 }
 
@@ -295,11 +338,20 @@ async function runLogin(arguments_: string[]): Promise<void> {
   const config = await readConfig();
   const nextConfig: TracksConfig = {
     ...config,
-    cloud: { serverUrl, token, connect: true },
+    cloud: { serverUrl, token, connect: false },
   };
-  const state = await startRemoteConnection(nextConfig);
-  if (values.json) console.log(JSON.stringify({ loggedIn: true, connected: true, serverUrl }));
-  else console.log(`Logged in and connected ${config.device.name} to ${state.remote.serverUrl}.`);
+  await writeConfig(nextConfig);
+  const state = await readRuntimeState();
+  if (state && healthyAgent(state)) {
+    if (config.web.enabled) {
+      process.kill(state.pid, "SIGHUP");
+      await waitForRemoteDisabled(true);
+    } else {
+      await stopBackgroundAgent();
+    }
+  }
+  if (values.json) console.log(JSON.stringify({ loggedIn: true, connected: false, serverUrl }));
+  else console.log(`Saved access to ${serverUrl}. Run tracks connect to connect this device.`);
 }
 
 async function runLogout(arguments_: string[]): Promise<void> {
@@ -313,7 +365,15 @@ async function runLogout(arguments_: string[]): Promise<void> {
     ...config,
     cloud: { serverUrl: null, token: null, connect: false },
   });
-  if (await signalAgent("SIGHUP")) await waitForRemoteDisabled(false);
+  const state = await readRuntimeState();
+  if (state && healthyAgent(state)) {
+    if (config.web.enabled) {
+      process.kill(state.pid, "SIGHUP");
+      await waitForRemoteDisabled(false);
+    } else {
+      await stopBackgroundAgent();
+    }
+  }
   if (values.json) console.log(JSON.stringify({ loggedIn: false, connected: false }));
   else console.log("Logged out of Tracks Server. This device and its live links are now offline; local web remains available.");
 }
@@ -335,7 +395,15 @@ async function runConnect(arguments_: string[]): Promise<void> {
   let config = await readConfig();
   if (action === "stop") {
     await writeConfig({ ...config, cloud: { ...config.cloud, connect: false } });
-    if (await signalAgent("SIGHUP")) await waitForRemoteDisabled(true);
+    const state = await readRuntimeState();
+    if (state && healthyAgent(state)) {
+      if (config.web.enabled) {
+        process.kill(state.pid, "SIGHUP");
+        await waitForRemoteDisabled(true);
+      } else {
+        await stopBackgroundAgent();
+      }
+    }
     if (values.json) console.log(JSON.stringify({ connected: false }));
     else console.log("Tracks device connection stopped. Local web remains available.");
     return;
@@ -361,13 +429,15 @@ async function runConnect(arguments_: string[]): Promise<void> {
 async function printStatus(json: boolean, localOnly = false): Promise<void> {
   const config = await readConfig();
   const state = await readRuntimeState();
-  const running = await healthyRuntime(state);
+  const agentRunning = healthyAgent(state);
+  const running = await healthyWeb(state);
   const report = {
+    agentRunning,
     running,
     pid: running ? state?.pid ?? null : null,
     url: running ? state?.url ?? null : null,
     sourceRoot: state?.sourceRoot ?? config.sourceRoot,
-    remote: localOnly ? undefined : state?.remote ?? {
+    remote: localOnly ? undefined : agentRunning && state ? state.remote : {
       configured: Boolean(config.cloud.serverUrl && config.cloud.token),
       connected: false,
       serverUrl: config.cloud.serverUrl,
@@ -446,8 +516,14 @@ async function runConfig(arguments_: string[]): Promise<void> {
       throw new Error(`Config key is read-only or unknown: ${key}`);
   }
   await writeConfig(next);
-  if (!restartRequired) await signalAgent("SIGHUP");
-  console.log(`Updated ${key}.${restartRequired ? " Restart local web to apply it." : ""}`);
+  const state = await readRuntimeState();
+  if (restartRequired && state && healthyAgent(state)) {
+    await stopBackgroundAgent();
+    if (next.web.enabled || next.cloud.connect) await launchBackgroundAgent();
+  } else if (!restartRequired) {
+    await signalAgent("SIGHUP");
+  }
+  console.log(`Updated ${key}.`);
 }
 
 async function main(): Promise<void> {

@@ -1,5 +1,13 @@
-import { open, rm } from "node:fs/promises";
-import { startTracksServer, type RemoteConnectionSnapshot, type RunningTracksServer } from "@tracks/server";
+import { watch, type FSWatcher } from "node:fs";
+import { constants } from "node:fs";
+import { access, open, rm } from "node:fs/promises";
+import { basename } from "node:path";
+import {
+  startTracksServer,
+  TrackCatalog,
+  type RemoteConnectionSnapshot,
+  type RunningTracksServer,
+} from "@tracks/server";
 import { HostedConnector } from "./connector.js";
 import {
   isProcessRunning,
@@ -50,19 +58,25 @@ export async function runBackgroundAgent(): Promise<void> {
   await acquireAgentLock();
 
   let config = await readConfig();
+  const catalog = new TrackCatalog(config.sourceRoot ? { sourceRoot: config.sourceRoot } : {});
+  await catalog.refresh();
+
   let connector: HostedConnector | null = null;
   let server: RunningTracksServer | null = null;
+  let sourceWatcher: FSWatcher | null = null;
+  let refreshTimer: ReturnType<typeof setTimeout> | null = null;
   let remote = remoteForConfig(config);
   let stopping = false;
   let persistChain = Promise.resolve();
   let reloadChain = Promise.resolve();
+  const currentStartedAt = new Date().toISOString();
+  const keepAlive = setInterval(() => undefined, 60_000);
 
   const persist = () => {
-    if (!server) return;
     const state: TracksRuntimeState = {
       version: 1,
       pid: process.pid,
-      url: server.url,
+      url: server?.url ?? null,
       startedAt: currentStartedAt,
       sourceRoot: config.sourceRoot,
       remote,
@@ -72,34 +86,43 @@ export async function runBackgroundAgent(): Promise<void> {
       .catch((error) => console.error("Tracks could not update runtime state:", error));
   };
 
-  const currentStartedAt = new Date().toISOString();
+  const stopStandaloneWatcher = () => {
+    if (refreshTimer) clearTimeout(refreshTimer);
+    refreshTimer = null;
+    sourceWatcher?.close();
+    sourceWatcher = null;
+  };
 
-  async function applyConnectionConfig(nextConfig: TracksConfig): Promise<void> {
-    if (connector) await connector.stop();
-    connector = null;
-    config = nextConfig;
-    remote = remoteForConfig(config);
-    server?.setRemoteState(remote);
-    server?.setRemoteBridge(null);
-
-    if (config.cloud.connect && config.cloud.serverUrl && config.cloud.token && server) {
-      const nextConnector = new HostedConnector({
-        serverUrl: config.cloud.serverUrl,
-        token: config.cloud.token,
-        device: config.device,
-        catalog: server.catalog,
-        onStatus: (snapshot) => {
-          remote = snapshot;
-          persist();
-          server?.notifyRemoteUpdated();
+  const startStandaloneWatcher = async () => {
+    if (server || sourceWatcher) return;
+    try {
+      await access(catalog.adapter.sourceRoot, constants.R_OK);
+      sourceWatcher = watch(
+        catalog.adapter.sourceRoot,
+        { recursive: true, persistent: false },
+        (_eventType, filename) => {
+          if (filename && !filename.toString().endsWith(".jsonl")) return;
+          if (refreshTimer) clearTimeout(refreshTimer);
+          refreshTimer = setTimeout(() => {
+            refreshTimer = null;
+            void catalog.refresh().then((library) => {
+              connector?.notifyCatalogUpdated({ scannedAt: library.scannedAt });
+            }).catch((error) => {
+              console.error(
+                `Tracks could not refresh ${filename ? basename(filename.toString()) : "the session catalog"}:`,
+                error,
+              );
+            });
+          }, 140);
         },
+      );
+      sourceWatcher.on("error", (error) => {
+        console.error("Tracks source watching is temporarily unavailable:", error);
       });
-      connector = nextConnector;
-      server.setRemoteBridge(nextConnector);
-      nextConnector.start();
+    } catch {
+      sourceWatcher = null;
     }
-    persist();
-  }
+  };
 
   async function waitForRemoteConnection(): Promise<RemoteConnectionSnapshot> {
     const deadline = Date.now() + 12_000;
@@ -124,7 +147,7 @@ export async function runBackgroundAgent(): Promise<void> {
       nextConfig = { ...config, cloud: { ...config.cloud, connect: true } };
     }
     await writeConfig(nextConfig);
-    await applyConnectionConfig(nextConfig);
+    await applyConfig(nextConfig);
     return waitForRemoteConnection();
   }
 
@@ -136,32 +159,97 @@ export async function runBackgroundAgent(): Promise<void> {
         : { ...config.cloud, connect: false },
     };
     await writeConfig(nextConfig);
-    await applyConnectionConfig(nextConfig);
+    await applyConfig(nextConfig);
     return remote;
   }
 
-  try {
+  async function startWebServer(): Promise<void> {
+    if (server) return;
+    stopStandaloneWatcher();
     server = await startTracksServer({
       port: config.web.port,
-      ...(config.sourceRoot ? { sourceRoot: config.sourceRoot } : {}),
+      catalog,
       onCatalogUpdated: (event) => connector?.notifyCatalogUpdated(event),
       remoteController: {
         connect: connectRemote,
         disconnect: disconnectRemote,
       },
     });
+    server.setRemoteState(remote);
+    server.setRemoteBridge(connector);
+  }
+
+  async function stopWebServer(): Promise<void> {
+    if (!server) return;
+    const runningServer = server;
+    server = null;
+    await runningServer.close();
+    await startStandaloneWatcher();
+  }
+
+  async function applyConfig(nextConfig: TracksConfig): Promise<void> {
+    const shouldConnect = Boolean(
+      nextConfig.cloud.connect && nextConfig.cloud.serverUrl && nextConfig.cloud.token,
+    );
+    const connectionChanged = nextConfig.cloud.connect !== config.cloud.connect
+      || nextConfig.cloud.serverUrl !== config.cloud.serverUrl
+      || nextConfig.cloud.token !== config.cloud.token
+      || nextConfig.device.id !== config.device.id
+      || nextConfig.device.name !== config.device.name;
+    const reconcileConnector = connectionChanged
+      || (shouldConnect && !connector)
+      || (!shouldConnect && Boolean(connector));
+
+    if (reconcileConnector && connector) await connector.stop();
+    if (reconcileConnector) connector = null;
+    config = nextConfig;
+
+    if (reconcileConnector) remote = remoteForConfig(config);
+
+    if (config.web.enabled) await startWebServer();
+    else await stopWebServer();
+
+    server?.setRemoteState(remote);
+    server?.setRemoteBridge(null);
+
+    if (reconcileConnector && shouldConnect && config.cloud.serverUrl && config.cloud.token) {
+      const nextConnector = new HostedConnector({
+        serverUrl: config.cloud.serverUrl,
+        token: config.cloud.token,
+        device: config.device,
+        catalog,
+        onStatus: (snapshot) => {
+          remote = snapshot;
+          persist();
+          server?.notifyRemoteUpdated();
+        },
+      });
+      connector = nextConnector;
+      nextConnector.start();
+    }
+
+    server?.setRemoteBridge(connector);
+    if (!server) await startStandaloneWatcher();
+    persist();
+  }
+
+  try {
+    await applyConfig(config);
   } catch (error) {
+    clearInterval(keepAlive);
+    stopStandaloneWatcher();
     await removeRuntimeFiles();
     throw error;
   }
 
-  await applyConnectionConfig(config);
-  persist();
-  console.log(`Tracks background agent is ready at ${server.url}`);
+  const readyServer = server as RunningTracksServer | null;
+  console.log(readyServer
+    ? `Tracks background agent is ready at ${readyServer.url}`
+    : "Tracks background agent is ready without local web.");
 
   const reload = () => {
     reloadChain = reloadChain
-      .then(async () => applyConnectionConfig(await readConfig()))
+      .then(async () => applyConfig(await readConfig()))
       .catch((error) => console.error("Tracks could not reload configuration:", error));
   };
   process.on("SIGHUP", reload);
@@ -171,6 +259,8 @@ export async function runBackgroundAgent(): Promise<void> {
       if (stopping) return;
       stopping = true;
       process.off("SIGHUP", reload);
+      clearInterval(keepAlive);
+      stopStandaloneWatcher();
       if (connector) await connector.stop();
       if (server) await server.close();
       server = null;

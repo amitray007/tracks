@@ -84,6 +84,7 @@ async function readEventUntil(
 
 afterEach(async () => {
   await Promise.all(stateDirectories.splice(0).map(async (directory) => {
+    try { await runCli(directory, ["logout", "--json"]); } catch { /* Already logged out. */ }
     try { await runCli(directory, ["web", "stop", "--json"]); } catch { /* Already stopped. */ }
     await rm(directory, { recursive: true, force: true });
   }));
@@ -115,6 +116,74 @@ describe("Tracks CLI end to end", () => {
       .toEqual({ stopped: true });
   });
 
+  it("keeps local web and the hosted connection independently operable", async () => {
+    const sourceRoot = await createSource();
+    const stateDirectory = await mkdtemp(join(tmpdir(), "tracks-cli-state-"));
+    stateDirectories.push(stateDirectory);
+    const cloud = await startTracksCloud({ token: TOKEN, webDirectory: false });
+    clouds.push(cloud);
+
+    const login = JSON.parse(await runCli(stateDirectory, [
+      "login", "--server", cloud.url, "--token", TOKEN, "--json",
+    ])) as { loggedIn: boolean; connected: boolean };
+    expect(login).toEqual({ loggedIn: true, connected: false, serverUrl: cloud.url });
+
+    const started = JSON.parse(await runCli(stateDirectory, [
+      "web", "start", "--source", sourceRoot, "--no-open", "--json",
+    ])) as { running: boolean; url: string };
+    expect(started.running).toBe(true);
+    const localOnly = JSON.parse(await runCli(stateDirectory, ["status", "--json"])) as {
+      running: boolean;
+      remote: { configured: boolean; connected: boolean };
+    };
+    expect(localOnly).toMatchObject({
+      running: true,
+      remote: { configured: true, connected: false },
+    });
+    const devicesBeforeConnect = await fetch(`${cloud.url}/api/devices`, {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    }).then((response) => response.json()) as { devices: unknown[] };
+    expect(devicesBeforeConnect.devices).toHaveLength(0);
+
+    await runCli(stateDirectory, ["web", "stop", "--json"]);
+    const connected = JSON.parse(await runCli(stateDirectory, ["connect", "--json"])) as {
+      connected: boolean;
+    };
+    expect(connected.connected).toBe(true);
+    const remoteOnly = JSON.parse(await runCli(stateDirectory, ["status", "--json"])) as {
+      agentRunning: boolean;
+      running: boolean;
+      url: string | null;
+      remote: { connected: boolean };
+    };
+    expect(remoteOnly).toMatchObject({
+      agentRunning: true,
+      running: false,
+      url: null,
+      remote: { connected: true },
+    });
+
+    const devicesAfterConnect = await waitFor(async () => {
+      const value = await fetch(`${cloud.url}/api/devices`, {
+        headers: { Authorization: `Bearer ${TOKEN}` },
+      }).then((response) => response.json()) as { devices: unknown[] };
+      return value.devices.length === 1 ? value.devices : null;
+    });
+    expect(devicesAfterConnect).toHaveLength(1);
+
+    await runCli(stateDirectory, ["connect", "stop", "--json"]);
+    const stopped = JSON.parse(await runCli(stateDirectory, ["status", "--json"])) as {
+      agentRunning: boolean;
+      running: boolean;
+      remote: { configured: boolean; connected: boolean };
+    };
+    expect(stopped).toMatchObject({
+      agentRunning: false,
+      running: false,
+      remote: { configured: true, connected: false },
+    });
+  });
+
   it("connects a device, relays a session, creates a live link, and reports offline", async () => {
     const sourceRoot = await createSource();
     const stateDirectory = await mkdtemp(join(tmpdir(), "tracks-cli-state-"));
@@ -128,7 +197,9 @@ describe("Tracks CLI end to end", () => {
     const login = JSON.parse(await runCli(stateDirectory, [
       "login", "--server", cloud.url, "--token", TOKEN, "--json",
     ])) as { loggedIn: boolean; connected: boolean };
-    expect(login).toMatchObject({ loggedIn: true, connected: true });
+    expect(login).toMatchObject({ loggedIn: true, connected: false });
+    expect(JSON.parse(await runCli(stateDirectory, ["connect", "--json"])))
+      .toMatchObject({ connected: true, serverUrl: cloud.url });
 
     const devices = await waitFor(async () => {
       const value = await fetch(`${cloud.url}/api/devices`, {

@@ -71,7 +71,7 @@ printf '%s' "$TRACKS_CLOUD_TOKEN" | \
   pnpm tracks login --server http://127.0.0.1:8787 --token-stdin
 ```
 
-`tracks login` verifies access and connects immediately; `tracks connect --server … --token-stdin` is an equivalent one-step first-time setup, while plain `tracks connect` resumes saved access. The local viewer exposes the same connect, disconnect, and logout controls without returning the saved token to the browser. `tracks web stop` stops the background agent. `tracks connect stop` disconnects only the hosted connection and leaves local viewing available. `tracks logout` disconnects, removes saved server access, removes the device from the server dashboard, and makes its device-backed live links report offline until it reconnects. The compatibility command `tracks serve --no-open` remains available for a foreground process.
+`tracks login` verifies and saves access without starting either web or hosted presence. `tracks connect --server … --token-stdin` performs one-step first-time setup and connection, while plain `tracks connect` resumes saved access. The local viewer exposes the same connect, disconnect, and logout controls without returning the saved token to the browser. `tracks web start` and `tracks web stop` change only the loopback viewer; `tracks connect` and `tracks connect stop` change only hosted presence. The shared background agent remains alive while either module needs it. `tracks logout` disconnects, removes saved server access, removes the device from the server dashboard, and makes its device-backed live links report offline until it reconnects. The compatibility command `tracks serve --no-open` remains available for a foreground process.
 
 ## Documentation
 

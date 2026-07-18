@@ -12,6 +12,7 @@ export interface TracksConfig {
   };
   sourceRoot: string | null;
   web: {
+    enabled: boolean;
     port: number;
     openBrowser: boolean;
   };
@@ -25,7 +26,7 @@ export interface TracksConfig {
 export interface TracksRuntimeState {
   version: 1;
   pid: number;
-  url: string;
+  url: string | null;
   startedAt: string;
   sourceRoot: string | null;
   remote: RemoteConnectionSnapshot;
@@ -61,6 +62,7 @@ export function defaultConfig(): TracksConfig {
     },
     sourceRoot: null,
     web: {
+      enabled: false,
       port: 0,
       openBrowser: true,
     },
@@ -94,6 +96,7 @@ function normalizedConfig(value: unknown): TracksConfig | null {
     device: { id, name: name.slice(0, 80) },
     sourceRoot: typeof record.sourceRoot === "string" ? resolve(record.sourceRoot) : null,
     web: {
+      enabled: web.enabled === true,
       port,
       openBrowser: web.openBrowser !== false,
     },
@@ -143,7 +146,11 @@ export async function readRuntimeState(): Promise<TracksRuntimeState | null> {
     const value: unknown = JSON.parse(await readFile(paths.runtime, "utf8"));
     if (!value || typeof value !== "object") return null;
     const state = value as Partial<TracksRuntimeState>;
-    if (state.version !== 1 || typeof state.pid !== "number" || typeof state.url !== "string") return null;
+    if (
+      state.version !== 1
+      || typeof state.pid !== "number"
+      || (state.url !== null && typeof state.url !== "string")
+    ) return null;
     return state as TracksRuntimeState;
   } catch {
     return null;
