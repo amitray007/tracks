@@ -106,6 +106,12 @@ afterEach(async () => {
 });
 
 describe("Tracks CLI end to end", () => {
+  it("reports the installed CLI version", async () => {
+    const stateDirectory = await mkdtemp(join(tmpdir(), "tracks-cli-state-"));
+    stateDirectories.push(stateDirectory);
+    expect(await runCli(stateDirectory, ["--version"])).toBe("0.1.0");
+  });
+
   it("starts, reports, and stops the background local web service", async () => {
     const sourceRoot = await createSource();
     const stateDirectory = await mkdtemp(join(tmpdir(), "tracks-cli-state-"));
