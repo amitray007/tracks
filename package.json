@@ -2,6 +2,7 @@
   "name": "tracks",
   "version": "0.0.0",
   "description": "Local-first viewer and sharing tool for AI coding-agent sessions",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "repository": {

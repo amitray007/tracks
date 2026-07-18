@@ -104,6 +104,12 @@ gitleaks git . --redact
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow and [SECURITY.md](SECURITY.md) for private vulnerability reporting.
 
+## Contributing and support
+
+Contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), use the issue templates for synthetic bug reports and focused proposals, and read [GOVERNANCE.md](GOVERNANCE.md) for how project decisions are made.
+
+For usage questions and troubleshooting, see [SUPPORT.md](SUPPORT.md). Report vulnerabilities and accidental data exposure privately through [SECURITY.md](SECURITY.md), never through a public issue.
+
 ## Core architectural rule
 
 Provider data is normalized before it reaches the UI:
@@ -133,3 +139,7 @@ The implementation intentionally remains a vertical slice. The self-hosted boots
 Tracks is pre-release software. Public APIs, storage formats, and security boundaries may change before the first stable release.
 
 Third-party product names and marks are used only to identify interoperability and reference behavior. Tracks is an independent project and is not endorsed by Anthropic or Traces.
+
+## License
+
+Tracks is available under the [MIT License](LICENSE).
