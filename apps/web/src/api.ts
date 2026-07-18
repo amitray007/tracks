@@ -13,19 +13,21 @@ export interface TrackLibraryResponse extends TrackLibrary {
 
 export type TracksSurface = "local" | "cloud-device" | "live-share";
 
+export interface RemoteConnectionSnapshot {
+  configured: boolean;
+  connected: boolean;
+  serverUrl: string | null;
+  deviceId: string | null;
+  lastError: string | null;
+}
+
 export interface RuntimeContext {
   surface: TracksSurface;
   online: boolean;
   trackId?: string;
   deviceId?: string;
   deviceName?: string | null;
-  remote?: {
-    configured: boolean;
-    connected: boolean;
-    serverUrl: string | null;
-    deviceId: string | null;
-    lastError: string | null;
-  };
+  remote?: RemoteConnectionSnapshot;
 }
 
 interface ApiRoute {
@@ -202,6 +204,41 @@ export async function createLiveSessionShare(trackId: string): Promise<{ url: st
     return { url: url.toString() };
   }
   throw new Error("Tracks returned an incomplete live link.");
+}
+
+function parseRemoteConnectionSnapshot(value: unknown): RemoteConnectionSnapshot {
+  if (!value || typeof value !== "object") {
+    throw new Error("Tracks returned an invalid server connection state.");
+  }
+  const record = value as Record<string, unknown>;
+  return {
+    configured: record.configured === true,
+    connected: record.connected === true,
+    serverUrl: typeof record.serverUrl === "string" ? record.serverUrl : null,
+    deviceId: typeof record.deviceId === "string" ? record.deviceId : null,
+    lastError: typeof record.lastError === "string" ? record.lastError : null,
+  };
+}
+
+export async function connectTracksServer(input?: {
+  serverUrl: string;
+  token: string;
+}): Promise<RemoteConnectionSnapshot> {
+  if (apiRoute().surface !== "local") throw new Error("Server connection settings are available only in the local viewer.");
+  const value = await fetchJson("/api/remote/connect", undefined, {
+    method: "POST",
+    body: JSON.stringify(input ?? {}),
+  });
+  return parseRemoteConnectionSnapshot(value);
+}
+
+export async function disconnectTracksServer(forget = false): Promise<RemoteConnectionSnapshot> {
+  if (apiRoute().surface !== "local") throw new Error("Server connection settings are available only in the local viewer.");
+  const value = await fetchJson("/api/remote/disconnect", undefined, {
+    method: "POST",
+    body: JSON.stringify({ forget }),
+  });
+  return parseRemoteConnectionSnapshot(value);
 }
 
 export interface LiveEvent {

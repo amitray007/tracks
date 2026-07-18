@@ -125,9 +125,10 @@ describe("Tracks CLI end to end", () => {
     const started = JSON.parse(await runCli(stateDirectory, [
       "web", "start", "--source", sourceRoot, "--no-open", "--json",
     ])) as { url: string };
-    await runCli(stateDirectory, ["login", "--server", cloud.url, "--token", TOKEN, "--json"]);
-    const connected = JSON.parse(await runCli(stateDirectory, ["connect", "--json"])) as { connected: boolean };
-    expect(connected.connected).toBe(true);
+    const login = JSON.parse(await runCli(stateDirectory, [
+      "login", "--server", cloud.url, "--token", TOKEN, "--json",
+    ])) as { loggedIn: boolean; connected: boolean };
+    expect(login).toMatchObject({ loggedIn: true, connected: true });
 
     const devices = await waitFor(async () => {
       const value = await fetch(`${cloud.url}/api/devices`, {
@@ -204,6 +205,27 @@ describe("Tracks CLI end to end", () => {
 
     await runCli(stateDirectory, ["connect", "stop", "--json"]);
     await waitFor(async () => {
+      const value = await fetch(`${started.url}/api/context`).then((response) => response.json()) as {
+        remote?: { configured: boolean; connected: boolean };
+      };
+      return value.remote?.configured && !value.remote.connected ? value : null;
+    });
+    const resumedFromWeb = await fetch(`${started.url}/api/remote/connect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    expect(resumedFromWeb.status).toBe(200);
+    expect(await resumedFromWeb.json()).toMatchObject({ configured: true, connected: true });
+
+    const loggedOutFromWeb = await fetch(`${started.url}/api/remote/disconnect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ forget: true }),
+    });
+    expect(loggedOutFromWeb.status).toBe(200);
+    expect(await loggedOutFromWeb.json()).toMatchObject({ configured: false, connected: false });
+    await waitFor(async () => {
       const value = await fetch(`${cloud.url}/api/shares/${shareId}/context`, {
         headers: { "X-Tracks-Share-Token": viewerSecret },
       }).then((response) => response.json()) as { online: boolean };
@@ -214,5 +236,28 @@ describe("Tracks CLI end to end", () => {
       { headers: { "X-Tracks-Share-Token": viewerSecret } },
     );
     expect(offlineTrack.status).toBe(503);
+
+    const reconnectedFromWeb = await fetch(`${started.url}/api/remote/connect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ serverUrl: cloud.url, token: TOKEN }),
+    });
+    expect(reconnectedFromWeb.status).toBe(200);
+    expect(await reconnectedFromWeb.json()).toMatchObject({ configured: true, connected: true });
+    await waitFor(async () => {
+      const value = await fetch(`${cloud.url}/api/shares/${shareId}/context`, {
+        headers: { "X-Tracks-Share-Token": viewerSecret },
+      }).then((response) => response.json()) as { online: boolean };
+      return value.online ? value : null;
+    });
+
+    expect(JSON.parse(await runCli(stateDirectory, ["logout", "--json"])))
+      .toEqual({ loggedIn: false, connected: false });
+    await waitFor(async () => {
+      const value = await fetch(`${cloud.url}/api/shares/${shareId}/context`, {
+        headers: { "X-Tracks-Share-Token": viewerSecret },
+      }).then((response) => response.json()) as { online: boolean };
+      return value.online ? null : value;
+    });
   });
 });

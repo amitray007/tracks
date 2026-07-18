@@ -42,7 +42,7 @@ export const DASHBOARD_HTML = `<!doctype html>
           <div class="empty" id="device-empty">
             <span class="empty-mark">⌁</span>
             <strong>No devices connected</strong>
-            <p>Connect a Tracks CLI to this server to see it here.</p>
+            <p>Connect from a local Tracks viewer. Disconnected or logged-out devices stay private and do not appear here.</p>
           </div>
         </section>
       </main>

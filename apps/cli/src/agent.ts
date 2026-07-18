@@ -7,10 +7,12 @@ import {
   readRuntimeState,
   removeRuntimeFiles,
   tracksPaths,
+  writeConfig,
   writeRuntimeState,
   type TracksConfig,
   type TracksRuntimeState,
 } from "./config.js";
+import { normalizeServerUrl, validateServerToken, verifyServerAccess } from "./remote-access.js";
 
 async function acquireAgentLock(): Promise<void> {
   const paths = tracksPaths();
@@ -71,23 +73,14 @@ export async function runBackgroundAgent(): Promise<void> {
   };
 
   const currentStartedAt = new Date().toISOString();
-  try {
-    server = await startTracksServer({
-      port: config.web.port,
-      ...(config.sourceRoot ? { sourceRoot: config.sourceRoot } : {}),
-      onCatalogUpdated: (event) => connector?.notifyCatalogUpdated(event),
-    });
-  } catch (error) {
-    await removeRuntimeFiles();
-    throw error;
-  }
 
-  const applyConnectionConfig = async (nextConfig: TracksConfig) => {
+  async function applyConnectionConfig(nextConfig: TracksConfig): Promise<void> {
     if (connector) await connector.stop();
     connector = null;
-    server?.setRemoteBridge(null);
     config = nextConfig;
     remote = remoteForConfig(config);
+    server?.setRemoteState(remote);
+    server?.setRemoteBridge(null);
 
     if (config.cloud.connect && config.cloud.serverUrl && config.cloud.token && server) {
       const nextConnector = new HostedConnector({
@@ -106,7 +99,61 @@ export async function runBackgroundAgent(): Promise<void> {
       nextConnector.start();
     }
     persist();
-  };
+  }
+
+  async function waitForRemoteConnection(): Promise<RemoteConnectionSnapshot> {
+    const deadline = Date.now() + 12_000;
+    while (Date.now() < deadline) {
+      if (remote.connected) return remote;
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    }
+    throw new Error(remote.lastError ?? "Tracks could not connect this device to the server.");
+  }
+
+  async function connectRemote(input?: { serverUrl?: string; token?: string }): Promise<RemoteConnectionSnapshot> {
+    let nextConfig = config;
+    if (input?.serverUrl || input?.token) {
+      if (!input.serverUrl || !input.token) throw new Error("Provide both the server URL and access token.");
+      const serverUrl = normalizeServerUrl(input.serverUrl);
+      const token = validateServerToken(input.token);
+      await verifyServerAccess(serverUrl, token);
+      nextConfig = { ...config, cloud: { serverUrl, token, connect: true } };
+    } else if (!config.cloud.serverUrl || !config.cloud.token) {
+      throw new Error("Enter a Tracks Server URL and access token first.");
+    } else {
+      nextConfig = { ...config, cloud: { ...config.cloud, connect: true } };
+    }
+    await writeConfig(nextConfig);
+    await applyConnectionConfig(nextConfig);
+    return waitForRemoteConnection();
+  }
+
+  async function disconnectRemote({ forget }: { forget: boolean }): Promise<RemoteConnectionSnapshot> {
+    const nextConfig: TracksConfig = {
+      ...config,
+      cloud: forget
+        ? { serverUrl: null, token: null, connect: false }
+        : { ...config.cloud, connect: false },
+    };
+    await writeConfig(nextConfig);
+    await applyConnectionConfig(nextConfig);
+    return remote;
+  }
+
+  try {
+    server = await startTracksServer({
+      port: config.web.port,
+      ...(config.sourceRoot ? { sourceRoot: config.sourceRoot } : {}),
+      onCatalogUpdated: (event) => connector?.notifyCatalogUpdated(event),
+      remoteController: {
+        connect: connectRemote,
+        disconnect: disconnectRemote,
+      },
+    });
+  } catch (error) {
+    await removeRuntimeFiles();
+    throw error;
+  }
 
   await applyConnectionConfig(config);
   persist();

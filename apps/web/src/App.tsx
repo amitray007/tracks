@@ -18,6 +18,8 @@ import type {
   ToolCallEntry,
 } from "@tracks/core-model";
 import {
+  connectTracksServer,
+  disconnectTracksServer,
   getTrackPage,
   getTrackLibrary,
   getRuntimeContext,
@@ -25,6 +27,7 @@ import {
   subscribeToLiveEvents,
   type TrackLibraryResponse,
   type RuntimeContext,
+  type RemoteConnectionSnapshot,
   type ViewerIdentity,
 } from "./api";
 import {
@@ -508,6 +511,159 @@ function IconButton({
     >
       <Icon name={icon} />
     </button>
+  );
+}
+
+function ServerConnectionDialog({
+  open,
+  remote,
+  onClose,
+  onChanged,
+}: {
+  open: boolean;
+  remote: RemoteConnectionSnapshot | undefined;
+  onClose(): void;
+  onChanged(remote: RemoteConnectionSnapshot): void;
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [serverUrl, setServerUrl] = useState("");
+  const [token, setToken] = useState("");
+  const [busyAction, setBusyAction] = useState<"connect" | "disconnect" | "logout" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (open && !dialog.open) dialog.showModal();
+    if (!open && dialog.open) dialog.close();
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    setServerUrl(remote?.serverUrl ?? "");
+    setToken("");
+    setError(null);
+  }, [open, remote?.serverUrl]);
+
+  const runAction = async (
+    action: "connect" | "disconnect" | "logout",
+    task: () => Promise<RemoteConnectionSnapshot>,
+  ) => {
+    setBusyAction(action);
+    setError(null);
+    try {
+      const next = await task();
+      onChanged(next);
+      if (action === "connect") setToken("");
+      if (action === "logout") onClose();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Tracks could not update the server connection.");
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const configured = remote?.configured === true;
+  const connected = remote?.connected === true;
+  const usingSavedAccess = configured && serverUrl.trim() === remote?.serverUrl && token.trim().length === 0;
+
+  return (
+    <dialog
+      className="server-connection-dialog"
+      ref={dialogRef}
+      aria-labelledby="server-connection-title"
+      onCancel={(event) => {
+        event.preventDefault();
+        if (!busyAction) onClose();
+      }}
+      onClose={onClose}
+    >
+      <header>
+        <div>
+          <span className="dialog-icon"><Icon name="integration" /></span>
+          <div>
+            <h2 id="server-connection-title">Tracks Server</h2>
+            <p>Connect this device for hosted viewing and live session links.</p>
+          </div>
+        </div>
+        <IconButton label="Close server settings" icon="close" onClick={onClose} disabled={Boolean(busyAction)} />
+      </header>
+
+      {connected ? (
+        <div className="server-connected-state">
+          <span className="server-state-mark"><span className="health-dot" /></span>
+          <div>
+            <strong>Device connected</strong>
+            <code>{remote?.serverUrl}</code>
+          </div>
+        </div>
+      ) : (
+        <form
+          className="server-connect-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void runAction("connect", () => usingSavedAccess
+              ? connectTracksServer()
+              : connectTracksServer({ serverUrl: serverUrl.trim(), token: token.trim() }));
+          }}
+        >
+          <label>
+            <span>Server URL</span>
+            <input
+              type="url"
+              value={serverUrl}
+              onChange={(event) => setServerUrl(event.target.value)}
+              placeholder="https://tracks.example.com"
+              autoComplete="url"
+              required
+              disabled={Boolean(busyAction)}
+            />
+          </label>
+          <label>
+            <span>Access token</span>
+            <input
+              type="password"
+              value={token}
+              onChange={(event) => setToken(event.target.value)}
+              placeholder={configured ? "Saved token" : "Paste server access token"}
+              autoComplete="off"
+              required={!configured || serverUrl.trim() !== remote?.serverUrl}
+              minLength={32}
+              disabled={Boolean(busyAction)}
+            />
+          </label>
+          <button className="server-primary-action" type="submit" disabled={Boolean(busyAction)}>
+            {busyAction === "connect" ? <span className="loading-spinner" /> : <Icon name="integration" size="sm" />}
+            {configured ? "Reconnect device" : "Connect device"}
+          </button>
+        </form>
+      )}
+
+      {error ? <p className="server-dialog-error" role="alert"><Icon name="error" size="sm" />{error}</p> : null}
+
+      {configured ? (
+        <footer>
+          {connected ? (
+            <button
+              type="button"
+              disabled={Boolean(busyAction)}
+              onClick={() => void runAction("disconnect", () => disconnectTracksServer(false))}
+            >
+              {busyAction === "disconnect" ? "Disconnecting…" : "Disconnect"}
+            </button>
+          ) : <span />}
+          <button
+            className="server-logout-action"
+            type="button"
+            disabled={Boolean(busyAction)}
+            title="Remove saved server access and take device-backed live links offline"
+            onClick={() => void runAction("logout", () => disconnectTracksServer(true))}
+          >
+            {busyAction === "logout" ? "Logging out…" : "Log out"}
+          </button>
+        </footer>
+      ) : null}
+    </dialog>
   );
 }
 
@@ -1138,12 +1294,6 @@ function DetailsRail({
           allowLocalFallback={surface === "local"}
           className="rail-share-button"
         />
-        <p className="share-scope-note">
-          <Icon name="link" size="xs" />
-          {sharedView
-            ? "Live session only · private libraries excluded"
-            : surface === "local" ? "Creates a live link when connected; otherwise copies a local link" : "Creates a live session-only link"}
-        </p>
       </section>
     </aside>
   );
@@ -1181,6 +1331,7 @@ export function App() {
   const [runtimeContext, setRuntimeContext] = useState<RuntimeContext | null>(null);
   const [libraryCollapsed, setLibraryCollapsed] = useState(readLibraryCollapsed);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [serverDialogOpen, setServerDialogOpen] = useState(false);
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [trackError, setTrackError] = useState<string | null>(null);
   const [trackMoreError, setTrackMoreError] = useState<string | null>(null);
@@ -1719,6 +1870,10 @@ export function App() {
     setLibraryCollapsed(true);
   }
 
+  function handleRemoteChanged(remote: RemoteConnectionSnapshot) {
+    setRuntimeContext((current) => current ? { ...current, remote } : current);
+  }
+
   const selectedSummary = library?.tracks.find((item) => item.id === selectedId)
     ?? (track?.summary.id === selectedId ? track.summary : null);
   const sessionShareUrl = track
@@ -1805,16 +1960,24 @@ export function App() {
           ) : null}
         </div>
         <footer className="library-footer">
-          <span title={runtimeContext?.remote?.lastError ?? undefined}>
-            <span className={`health-dot live-${runtimeContext?.remote?.connected === false && runtimeContext.remote.configured ? "reconnecting" : liveState}`} />
-            {runtimeContext?.surface === "cloud-device"
-              ? "Server view"
-              : runtimeContext?.remote?.connected
+          {runtimeContext?.surface === "local" ? (
+            <button
+              className="server-status-button"
+              type="button"
+              title={runtimeContext.remote?.lastError ?? "Manage Tracks Server connection"}
+              onClick={() => setServerDialogOpen(true)}
+            >
+              <span className={`health-dot live-${runtimeContext.remote?.connected === false && runtimeContext.remote.configured ? "reconnecting" : liveState}`} />
+              {runtimeContext.remote?.connected
                 ? "Server connected"
-                : runtimeContext?.remote?.configured
+                : runtimeContext.remote?.configured
                   ? "Server disconnected"
-                  : liveState === "live" ? "Live updates" : liveState === "reconnecting" ? "Reconnecting" : "Connecting"}
-          </span>
+                  : "Connect server"}
+              <Icon name="disclosure" size="xs" />
+            </button>
+          ) : (
+            <span><span className={`health-dot live-${liveState}`} />Server view</span>
+          )}
           <span>{library ? `${library.total.toLocaleString()} sessions` : "—"}</span>
         </footer>
         </aside>
@@ -1863,12 +2026,12 @@ export function App() {
             ) : null}
             {selectedId && sharedView && runtimeContext?.online === false && !track ? (
               <EmptyPanel icon="session" title="The source device is offline">
-                This live link is valid, but its session remains on the disconnected device. Keep this page open or try again after the device reconnects.
+                The source device was disconnected, logged out, or lost its server connection. This live link will resume when that device reconnects.
               </EmptyPanel>
             ) : null}
             {runtimeContext?.surface === "cloud-device" && runtimeContext.online === false && !track ? (
               <EmptyPanel icon="session" title="This device is offline">
-                Tracks Server only shows sessions from connected devices. Start <code>tracks connect</code> on the source device to continue.
+                The device was disconnected or logged out. Reconnect it from the local Tracks viewer or run <code>tracks connect</code> to continue.
               </EmptyPanel>
             ) : null}
             {!selectedId && library?.sourceState === "missing" ? (
@@ -2044,6 +2207,14 @@ export function App() {
           ) : null}
         </div>
       </main>
+      {runtimeContext?.surface === "local" ? (
+        <ServerConnectionDialog
+          open={serverDialogOpen}
+          remote={runtimeContext.remote}
+          onClose={() => setServerDialogOpen(false)}
+          onChanged={handleRemoteChanged}
+        />
+      ) : null}
     </div>
   );
 }

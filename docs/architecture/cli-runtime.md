@@ -23,15 +23,18 @@ The installed CLI should stay small. The web UI owns detailed configuration and 
 | `tracks web [start]` | Start/reuse the background local service and open the local web UI |
 | `tracks web stop` | Stop local web/index watching without changing login state |
 | `tracks web status` | Report the local URL and local service health |
-| `tracks login` | Verify and store a self-hosted server bootstrap credential; later replace this with browser/device authorization |
-| `tracks connect [start]` | Start/reuse the background agent and connect this device outbound to Tracks Server |
+| `tracks login` | Verify self-hosted server access, store it, and connect immediately; later replace the token input with browser/device authorization |
+| `tracks connect [start]` | Resume saved server access, or accept `--server` plus a token for one-step first-time connection |
 | `tracks connect stop` | Disconnect the device while leaving local web available |
+| `tracks logout` | Disconnect, forget saved server access, remove the device from server presence, and leave local web available |
 | `tracks config [get|set|list]` | Inspect or change bounded machine-level settings; ordinary editing remains in web UI |
 | `tracks status` | Summarize local web, source watcher, login, remote connection, and version without session content |
 
 `tracks` may remain an alias for `tracks web`. `serve` and `doctor` can remain development/diagnostic compatibility commands, but they are not separate product workflows. The CLI supports `--json` for lifecycle and automation commands and never prints unbounded session content by default.
 
 Current configuration includes the source root, loopback port, browser-open preference, server URL, generated device ID, device display name, and connection-enabled state. The bootstrap token is redacted from CLI output and held in a user-only `0600` file. Production refresh credentials must move to an OS credential store; auto-start and configurable reconnect policy are not implemented yet.
+
+The local web UI is the primary connection surface. Its loopback-only API accepts a server URL and token, asks the background agent to verify and store them, and never returns the token to browser JavaScript. Disconnect preserves saved access for quick reconnection; logout stops the outbound socket and deletes both server URL and token. The same lifecycle powers the CLI commands.
 
 ## Service lifecycle
 

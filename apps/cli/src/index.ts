@@ -20,6 +20,7 @@ import {
   type TracksConfig,
   type TracksRuntimeState,
 } from "./config.js";
+import { normalizeServerUrl, validateServerToken, verifyServerAccess } from "./remote-access.js";
 
 const HELP = `Tracks — local and connected Claude Code session viewer
 
@@ -27,15 +28,16 @@ Usage:
   tracks [web] [start] [--source <directory>] [--port <number>] [--no-open]
   tracks web stop | status
   tracks login --server <url> [--token <token> | --token-stdin]
-  tracks logout
-  tracks connect [start] | stop
+  tracks logout [--json]
+  tracks connect [start] [--server <url>] [--token <token> | --token-stdin] | stop
   tracks config list | get <key> | set <key> <value>
   tracks status [--json]
   tracks doctor [--source <directory>] [--json]
   tracks serve [--source <directory>] [--port <number>] [--no-open]
 
-Local web does not require login. Login/connect only enable the optional hosted
-device view and live links. Use TRACKS_STATE_DIR to isolate config/runtime state.`;
+Local web does not require an account. Login verifies server access and connects
+this device; connect resumes saved access or performs the same one-step setup.
+Use TRACKS_STATE_DIR to isolate config/runtime state.`;
 
 const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -244,16 +246,33 @@ async function readTokenFromStdin(): Promise<string> {
   return value.trim();
 }
 
-function normalizeServerUrl(value: string): string {
-  const url = new URL(value);
-  if (!new Set(["http:", "https:"]).has(url.protocol)) {
-    throw new Error("Tracks Server URL must use http or https.");
+async function waitForRemoteConnection(state: TracksRuntimeState): Promise<TracksRuntimeState> {
+  const deadline = Date.now() + 12_000;
+  let latest = state;
+  while (Date.now() < deadline) {
+    latest = await readRuntimeState() ?? latest;
+    if (latest.remote.connected) return latest;
+    await sleep(120);
   }
-  if (url.username || url.password || url.hash || url.search) {
-    throw new Error("Tracks Server URL must not contain credentials, query parameters, or a fragment.");
+  throw new Error(latest.remote.lastError ?? "Tracks could not connect this device to the server.");
+}
+
+async function startRemoteConnection(config: TracksConfig): Promise<TracksRuntimeState> {
+  await writeConfig({ ...config, cloud: { ...config.cloud, connect: true } });
+  const state = await launchBackgroundAgent();
+  process.kill(state.pid, "SIGHUP");
+  return waitForRemoteConnection(state);
+}
+
+async function waitForRemoteDisabled(configured: boolean): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const state = await readRuntimeState();
+    if (!state || !isProcessRunning(state.pid)) return;
+    if (!state.remote.connected && state.remote.configured === configured) return;
+    await sleep(80);
   }
-  url.pathname = url.pathname.replace(/\/+$/, "") || "/";
-  return url.toString().replace(/\/$/, "");
+  throw new Error("Tracks did not finish updating the server connection.");
 }
 
 async function runLogin(arguments_: string[]): Promise<void> {
@@ -268,34 +287,35 @@ async function runLogin(arguments_: string[]): Promise<void> {
     strict: true,
   });
   if (!values.server) throw new Error("tracks login requires --server <url>.");
-  const token = values["token-stdin"]
+  const token = validateServerToken(values["token-stdin"]
     ? await readTokenFromStdin()
-    : values.token ?? process.env.TRACKS_CLOUD_TOKEN ?? "";
-  if (token.length < 32) throw new Error("Tracks Server token must contain at least 32 characters.");
+    : values.token ?? process.env.TRACKS_CLOUD_TOKEN ?? "");
   const serverUrl = normalizeServerUrl(values.server);
-  const response = await fetch(`${serverUrl}/api/devices`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-    signal: AbortSignal.timeout(5_000),
-  });
-  if (!response.ok) throw new Error(`Tracks Server rejected login (${response.status}).`);
+  await verifyServerAccess(serverUrl, token);
   const config = await readConfig();
-  await writeConfig({
+  const nextConfig: TracksConfig = {
     ...config,
-    cloud: { ...config.cloud, serverUrl, token },
-  });
-  await signalAgent("SIGHUP");
-  if (values.json) console.log(JSON.stringify({ loggedIn: true, serverUrl }));
-  else console.log(`Logged in to ${serverUrl}. Run tracks connect to expose this device.`);
+    cloud: { serverUrl, token, connect: true },
+  };
+  const state = await startRemoteConnection(nextConfig);
+  if (values.json) console.log(JSON.stringify({ loggedIn: true, connected: true, serverUrl }));
+  else console.log(`Logged in and connected ${config.device.name} to ${state.remote.serverUrl}.`);
 }
 
-async function runLogout(): Promise<void> {
+async function runLogout(arguments_: string[]): Promise<void> {
+  const { values } = parseArgs({
+    args: arguments_,
+    options: { json: { type: "boolean", default: false } },
+    strict: true,
+  });
   const config = await readConfig();
   await writeConfig({
     ...config,
     cloud: { serverUrl: null, token: null, connect: false },
   });
-  await signalAgent("SIGHUP");
-  console.log("Tracks Server credentials removed. Local web remains available.");
+  if (await signalAgent("SIGHUP")) await waitForRemoteDisabled(false);
+  if (values.json) console.log(JSON.stringify({ loggedIn: false, connected: false }));
+  else console.log("Logged out of Tracks Server. This device and its live links are now offline; local web remains available.");
 }
 
 async function runConnect(arguments_: string[]): Promise<void> {
@@ -304,34 +324,36 @@ async function runConnect(arguments_: string[]): Promise<void> {
     : "start";
   const { values } = parseArgs({
     args: arguments_,
-    options: { json: { type: "boolean", default: false } },
+    options: {
+      server: { type: "string" },
+      token: { type: "string" },
+      "token-stdin": { type: "boolean", default: false },
+      json: { type: "boolean", default: false },
+    },
     strict: true,
   });
-  const config = await readConfig();
+  let config = await readConfig();
   if (action === "stop") {
     await writeConfig({ ...config, cloud: { ...config.cloud, connect: false } });
-    await signalAgent("SIGHUP");
+    if (await signalAgent("SIGHUP")) await waitForRemoteDisabled(true);
     if (values.json) console.log(JSON.stringify({ connected: false }));
     else console.log("Tracks device connection stopped. Local web remains available.");
     return;
   }
   if (action !== "start") throw new Error(`Unknown connect action: ${action}`);
+  if (values.server || values.token || values["token-stdin"]) {
+    if (!values.server) throw new Error("tracks connect requires --server <url> when configuring access.");
+    const token = validateServerToken(values["token-stdin"]
+      ? await readTokenFromStdin()
+      : values.token ?? process.env.TRACKS_CLOUD_TOKEN ?? "");
+    const serverUrl = normalizeServerUrl(values.server);
+    await verifyServerAccess(serverUrl, token);
+    config = { ...config, cloud: { serverUrl, token, connect: true } };
+  }
   if (!config.cloud.serverUrl || !config.cloud.token) {
-    throw new Error("Run tracks login --server <url> before connecting this device.");
+    throw new Error("Provide --server and --token, or run tracks login once before reconnecting this device.");
   }
-  await writeConfig({ ...config, cloud: { ...config.cloud, connect: true } });
-  const state = await launchBackgroundAgent();
-  process.kill(state.pid, "SIGHUP");
-  const deadline = Date.now() + 12_000;
-  let latest = state;
-  while (Date.now() < deadline) {
-    latest = await readRuntimeState() ?? latest;
-    if (latest.remote.connected) break;
-    await sleep(120);
-  }
-  if (!latest.remote.connected) {
-    throw new Error(latest.remote.lastError ?? "Tracks could not connect this device to the server.");
-  }
+  const latest = await startRemoteConnection(config);
   if (values.json) console.log(JSON.stringify({ connected: true, serverUrl: latest.remote.serverUrl }));
   else console.log(`Connected ${config.device.name} to ${latest.remote.serverUrl}.`);
 }
@@ -446,7 +468,7 @@ async function main(): Promise<void> {
     return printStatus(Boolean(values.json));
   }
   if (command === "login") return runLogin(raw);
-  if (command === "logout") return runLogout();
+  if (command === "logout") return runLogout(raw);
   if (command === "connect") return runConnect(raw);
   if (command === "config") return runConfig(raw);
   if (command === "doctor") return runDoctor(raw);

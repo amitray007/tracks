@@ -32,6 +32,7 @@ export interface TracksServerOptions {
   sourceRoot?: string;
   staticDirectory?: string | false;
   onCatalogUpdated?(event: { changedFile: string | null; scannedAt: string; total: number }): void;
+  remoteController?: TracksRemoteController;
 }
 
 export interface RemoteConnectionSnapshot {
@@ -47,10 +48,16 @@ export interface TracksRemoteBridge {
   createSessionShare(trackId: string): Promise<{ url: string }>;
 }
 
+export interface TracksRemoteController {
+  connect(input?: { serverUrl?: string; token?: string }): Promise<RemoteConnectionSnapshot>;
+  disconnect(options: { forget: boolean }): Promise<RemoteConnectionSnapshot>;
+}
+
 export interface RunningTracksServer {
   url: string;
   catalog: TrackCatalog;
   setRemoteBridge(bridge: TracksRemoteBridge | null): void;
+  setRemoteState(snapshot: RemoteConnectionSnapshot): void;
   notifyRemoteUpdated(): void;
   close(): Promise<void>;
 }
@@ -175,6 +182,7 @@ export async function startTracksServer(
   let refreshTimer: ReturnType<typeof setTimeout> | null = null;
   let sourceWatcher: FSWatcher | null = null;
   let remoteBridge: TracksRemoteBridge | null = null;
+  let remoteState: RemoteConnectionSnapshot | null = null;
 
   function sendEvent(event: string, value: unknown): void {
     const payload = `id: ${++eventSequence}\nevent: ${event}\ndata: ${JSON.stringify(value)}\n\n`;
@@ -261,7 +269,7 @@ export async function startTracksServer(
         sendJson(response, 200, {
           surface: "local",
           online: true,
-          remote: remoteBridge?.snapshot() ?? {
+          remote: remoteBridge?.snapshot() ?? remoteState ?? {
             configured: false,
             connected: false,
             serverUrl: null,
@@ -269,6 +277,36 @@ export async function startTracksServer(
             lastError: null,
           },
         });
+        return;
+      }
+
+      if (requestUrl.pathname === "/api/remote/connect" && request.method === "POST") {
+        if (!options.remoteController) {
+          sendJson(response, 501, { error: "Server connection controls are unavailable in this Tracks runtime." });
+          return;
+        }
+        const body = await readJsonBody(request);
+        const record = body && typeof body === "object" ? body as Record<string, unknown> : {};
+        const serverUrl = typeof record.serverUrl === "string" ? record.serverUrl.trim() : undefined;
+        const token = typeof record.token === "string" ? record.token.trim() : undefined;
+        if ((serverUrl && !token) || (!serverUrl && token)) {
+          sendJson(response, 400, { error: "Provide both the server URL and access token." });
+          return;
+        }
+        sendJson(response, 200, await options.remoteController.connect(
+          serverUrl && token ? { serverUrl, token } : undefined,
+        ));
+        return;
+      }
+
+      if (requestUrl.pathname === "/api/remote/disconnect" && request.method === "POST") {
+        if (!options.remoteController) {
+          sendJson(response, 501, { error: "Server connection controls are unavailable in this Tracks runtime." });
+          return;
+        }
+        const body = await readJsonBody(request);
+        const forget = Boolean(body && typeof body === "object" && "forget" in body && body.forget === true);
+        sendJson(response, 200, await options.remoteController.disconnect({ forget }));
         return;
       }
 
@@ -400,10 +438,16 @@ export async function startTracksServer(
     catalog,
     setRemoteBridge(bridge) {
       remoteBridge = bridge;
-      sendEvent("remote.updated", remoteBridge?.snapshot() ?? null);
+      if (bridge) remoteState = bridge.snapshot();
+      sendEvent("remote.updated", remoteBridge?.snapshot() ?? remoteState);
+    },
+    setRemoteState(snapshot) {
+      remoteState = snapshot;
+      sendEvent("remote.updated", snapshot);
     },
     notifyRemoteUpdated() {
-      sendEvent("remote.updated", remoteBridge?.snapshot() ?? null);
+      if (remoteBridge) remoteState = remoteBridge.snapshot();
+      sendEvent("remote.updated", remoteState);
     },
     close: () => {
       if (refreshTimer) clearTimeout(refreshTimer);

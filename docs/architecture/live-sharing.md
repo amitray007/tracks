@@ -69,7 +69,7 @@ The data plane is request-driven. A device MUST NOT upload its complete library 
 - A share viewer that cannot enumerate the source device library and reports a deliberate offline state.
 - An unauthenticated health endpoint and a container image containing the hosted web assets.
 
-`apps/cli` implements the complementary single-agent lifecycle: `web`, `login`, `connect`, `config`, and `status`; one source watcher/index serves both local and remote requests; reconnect uses bounded exponential backoff with jitter. `TRACKS_CLOUD_TOKEN` is a self-hosted bootstrap credential, not the final multi-account authentication design. It is stored in a user-only `0600` config file in this slice; production device credentials still require OS credential storage and short-lived connection tokens.
+`apps/cli` implements the complementary single-agent lifecycle: `web`, `login`, `connect`, `logout`, `config`, and `status`; one source watcher/index serves both local and remote requests; reconnect uses bounded exponential backoff with jitter. The local viewer drives the same connection controller through loopback-only endpoints. `TRACKS_CLOUD_TOKEN` is a self-hosted bootstrap credential, not the final multi-account authentication design. It is stored in a user-only `0600` config file in this slice, is never returned to the browser, and is removed on logout; production device credentials still require OS credential storage and short-lived connection tokens.
 
 ## Identity and links
 

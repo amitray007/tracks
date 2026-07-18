@@ -239,4 +239,63 @@ describe("Tracks loopback server", () => {
     expect(share.status).toBe(201);
     expect(await share.json()).toEqual({ url: "https://tracks.example/s/live#claude:test:session" });
   });
+
+  it("routes local web connection and logout actions through the background agent", async () => {
+    const sourceRoot = await createSource();
+    const actions: string[] = [];
+    const connected = {
+      configured: true,
+      connected: true,
+      serverUrl: "https://tracks.example",
+      deviceId: "019d2c64-2526-7f8a-b289-a1f9ad67c807",
+      lastError: null,
+    };
+    const disconnected = { ...connected, connected: false };
+    const loggedOut = {
+      configured: false,
+      connected: false,
+      serverUrl: null,
+      deviceId: connected.deviceId,
+      lastError: null,
+    };
+    const server = await startTracksServer({
+      sourceRoot,
+      staticDirectory: false,
+      remoteController: {
+        connect: async (input) => {
+          actions.push(input ? `connect:${input.serverUrl}` : "reconnect");
+          return connected;
+        },
+        disconnect: async ({ forget }) => {
+          actions.push(forget ? "logout" : "disconnect");
+          return forget ? loggedOut : disconnected;
+        },
+      },
+    });
+    servers.push(server);
+
+    const connect = await fetch(`${server.url}/api/remote/connect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ serverUrl: "https://tracks.example", token: "x".repeat(32) }),
+    });
+    expect(connect.status).toBe(200);
+    expect(await connect.json()).toMatchObject({ connected: true });
+
+    const reconnect = await fetch(`${server.url}/api/remote/connect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    expect(reconnect.status).toBe(200);
+
+    const logout = await fetch(`${server.url}/api/remote/disconnect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ forget: true }),
+    });
+    expect(logout.status).toBe(200);
+    expect(await logout.json()).toMatchObject({ configured: false, connected: false });
+    expect(actions).toEqual(["connect:https://tracks.example", "reconnect", "logout"]);
+  });
 });

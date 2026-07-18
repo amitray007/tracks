@@ -25,7 +25,7 @@ Priority levels:
 | CLI-05 | P0 | Leave the service running and print its URL when browser launch fails. |
 | CLI-06 | P1 | Provide bounded export/host automation that uses the same policy engine and artifacts as the web UI. |
 | CLI-07 | P0 | Use a pinned Portless development workflow with a stable same-origin `.localhost` URL; do not make Portless a shipped runtime dependency. |
-| CLI-08 | P0 | Provide `web`, `login`, `connect`, `config`, and `status` command families while keeping detailed source, sharing, and device management in the web surfaces. |
+| CLI-08 | P0 | Provide `web`, `login`, `connect`, `logout`, `config`, and `status` command families while keeping detailed source, sharing, and device management in the web surfaces. |
 | CLI-09 | P0 | Keep local web and remote connection independently operable inside one user-owned background agent; a server or network failure must not interrupt local viewing. |
 
 ### Source management
@@ -127,6 +127,7 @@ Priority levels:
 | CON-08 | P1 | Show an explicit source-device-offline state at a valid live URL and never serve a stale server-side session copy as if it were current. |
 | CON-09 | P0 | Provide a production container and Docker Compose bootstrap that runs non-root/read-only, has a health check, requires authentication, and mounts no session/database volume. |
 | CON-10 | P1 | Keep any future durable account/share routing metadata content-free, minimal, revocable, retention-bounded, and independently deletable. |
+| CON-11 | P0 | Let the local web UI configure, connect, disconnect, and log out of Tracks Server through the same background-agent lifecycle as the CLI; never return the saved access token to browser JavaScript. |
 
 ### Provider adapters
 
