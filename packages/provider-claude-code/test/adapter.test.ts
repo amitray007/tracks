@@ -162,6 +162,23 @@ describe("ClaudeCodeAdapter", () => {
             ].join("\n"),
           },
         }),
+        JSON.stringify({
+          type: "user",
+          sessionId: "fixture-session",
+          uuid: "unlinked-agent-notification",
+          timestamp: "2026-07-16T08:00:12.000Z",
+          message: {
+            content: [
+              "<task-notification>",
+              "<task-id>task-unlinked</task-id>",
+              "<output-file>/tmp/task-unlinked.output</output-file>",
+              "<status>completed</status>",
+              "<summary>Background research complete</summary>",
+              "<result>Collected the requested evidence.</result>",
+              "</task-notification>",
+            ].join("\n"),
+          },
+        }),
       ].join("\n") + "\n",
       "utf8",
     );
@@ -193,6 +210,24 @@ describe("ClaudeCodeAdapter", () => {
     expect(track.entries.some((entry) =>
       entry.kind === "message" && entry.text.includes("<task-notification>"),
     )).toBe(false);
+    expect(track.entries.find((entry) =>
+      entry.kind === "tool_result"
+      && entry.toolUseId === null
+      && typeof entry.content === "object"
+      && entry.content !== null
+      && "taskId" in entry.content
+      && entry.content.taskId === "task-unlinked"
+    )).toMatchObject({
+      kind: "tool_result",
+      toolUseId: null,
+      isError: false,
+      content: {
+        text: "Collected the requested evidence.",
+        summary: "Background research complete",
+        status: "completed",
+        taskId: "task-unlinked",
+      },
+    });
     expect(track.entries.some((entry) =>
       entry.kind === "message" && entry.text.includes("<widget mode=\"compact\">")
     )).toBe(true);

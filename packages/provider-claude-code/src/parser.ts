@@ -26,7 +26,7 @@ const MAX_DIAGNOSTICS = 50;
 
 interface ClaudeTaskNotification {
   taskId: string;
-  toolUseId: string;
+  toolUseId: string | null;
   status: string;
   summary: string | null;
   note: string | null;
@@ -74,7 +74,7 @@ function parseTaskNotification(value: string): ClaudeTaskNotification | null {
   const taskId = taggedValue(source, "task-id");
   const toolUseId = taggedValue(source, "tool-use-id");
   const status = taggedValue(source, "status");
-  if (!taskId || !toolUseId || !status) return null;
+  if (!taskId || !status) return null;
 
   const usageSource = taggedValue(source, "usage") ?? "";
   return {
