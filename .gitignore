@@ -10,6 +10,14 @@ coverage/
 tracks-share-*/
 
 # Local environment overrides
-.env
-.env.local
-.env.*.local
+.env*
+!.env.example
+
+# Local credentials and runtime data
+*.key
+*.pem
+*.p12
+*.sqlite
+*.sqlite3
+*.db
+*.log

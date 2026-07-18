@@ -1,8 +1,25 @@
 {
   "name": "tracks",
   "version": "0.0.0",
+  "description": "Local-first viewer and sharing tool for AI coding-agent sessions",
+  "license": "MIT",
   "private": true,
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/amitray007/tracks.git"
+  },
+  "homepage": "https://github.com/amitray007/tracks#readme",
+  "bugs": {
+    "url": "https://github.com/amitray007/tracks/issues"
+  },
+  "keywords": [
+    "ai-agents",
+    "claude-code",
+    "local-first",
+    "session-viewer",
+    "tracing"
+  ],
   "packageManager": "pnpm@10.33.2",
   "engines": {
     "node": ">=22.0.0"
