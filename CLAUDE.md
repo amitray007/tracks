@@ -19,3 +19,10 @@ change, not the version number an agent wants the release process to generate.
 Tracks is pre-1.0. Patch fixes and minor features follow their normal levels;
 breaking changes are released as minor versions until Tracks deliberately
 declares 1.0. Never label work as a feature solely to force a minor release.
+
+## CLI release scope
+
+Release Please treats only `apps/cli/` as the releasable Homebrew CLI
+component. A commit that changes only the web, cloud/server, shared packages,
+documentation, CI, or another non-CLI path must not create a CLI release.
+Never touch `apps/cli/` artificially to force release automation to run.

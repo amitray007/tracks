@@ -23,3 +23,14 @@ Tracks is pre-1.0: fixes and compatible refinements normally produce a patch,
 new capabilities produce a minor, and breaking changes remain minor until the
 project deliberately declares a stable 1.0 contract. After 1.0, breaking
 changes produce a major release.
+
+## CLI release scope
+
+The Homebrew release component is `apps/cli`. Release Please only considers
+Conventional Commits that touch files under `apps/cli/`; changes confined to
+the web app, cloud/server apps, shared packages, documentation, CI, or other
+repository paths do not create a CLI release.
+
+Do not modify or add a meaningless file under `apps/cli/` merely to trigger a
+release. A CLI release should follow only from an actual CLI code or package
+change.

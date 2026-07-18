@@ -37,7 +37,7 @@ does not need permission to bypass the `main` branch ruleset.
 ## Version selection
 
 Release Please derives the next version from Conventional Commits merged since
-the last release:
+the last release that also touch `apps/cli/`:
 
 | Change | Commit example | Version before 1.0 |
 | --- | --- | --- |
@@ -51,11 +51,17 @@ Commit types describe the change; do not use `feat:` merely to force a minor
 release. For an intentional product-driven version, use a `Release-As: X.Y.Z`
 footer in a Conventional Commit rather than misclassifying the work.
 
+`apps/cli` is the only releasable component. A commit confined to `apps/web`,
+`apps/cloud`, `apps/server`, `packages`, documentation, CI, or another path is
+not included in CLI version calculation and does not create a release. Do not
+touch a CLI file artificially to opt an unrelated change into a release.
+
 ## Cut a release
 
 1. Merge ordinary Conventional Commit changes to `main`. The `Release Please`
-   workflow creates or updates one release pull request with the computed
-   version, synchronized workspace package versions, and `CHANGELOG.md`.
+   workflow creates or updates one release pull request only when eligible
+   commits touch `apps/cli/`. The pull request contains the computed CLI
+   version and CLI changelog.
 2. Review and merge that release pull request when the accumulated changes are
    ready to ship. The normal branch rules, approval, CI, and secret scan still
    apply.
@@ -82,9 +88,8 @@ publish for an existing release tag without creating a new version, run:
 gh workflow run release-cli.yml -f tag=tracks-cli-vX.Y.Z
 ```
 
-Release Please updates every workspace `package.json` together. `pnpm
-check:versions` rejects version drift if a manual edit changes only part of the
-workspace.
+Release Please updates `apps/cli/package.json`; other private workspace package
+versions are independent and do not determine the Homebrew release version.
 
 ## Build the artifact locally
 

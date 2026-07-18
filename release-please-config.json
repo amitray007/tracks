@@ -5,19 +5,9 @@
   "include-component-in-tag": true,
   "include-v-in-tag": true,
   "packages": {
-    ".": {
+    "apps/cli": {
       "component": "tracks-cli",
-      "package-name": "tracks",
-      "extra-files": [
-        "apps/cli/package.json",
-        "apps/cloud/package.json",
-        "apps/server/package.json",
-        "apps/web/package.json",
-        "packages/core-model/package.json",
-        "packages/live-protocol/package.json",
-        "packages/provider-claude-code/package.json",
-        "packages/provider-sdk/package.json"
-      ]
+      "package-name": "@tracks/cli"
     }
   }
 }
