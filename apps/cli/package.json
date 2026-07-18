@@ -14,7 +14,7 @@
     "dev": "tsx src/index.ts",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "test": "pnpm --filter @tracks/cloud build && pnpm --filter @tracks/server build && pnpm build && vitest run"
+    "test": "pnpm --filter @tracks/cloud build && pnpm --filter @tracks/server build && pnpm --filter @tracks/web build && pnpm build && vitest run"
   },
   "dependencies": {
     "@tracks/live-protocol": "workspace:*",
