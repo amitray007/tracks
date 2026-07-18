@@ -6,7 +6,7 @@ Thanks for helping improve Tracks. The project is pre-release, so small, focused
 
 Requirements:
 
-- Node.js 22 or newer.
+- Node.js 24 or newer.
 - pnpm 10.33.2 through Corepack.
 
 ```sh
