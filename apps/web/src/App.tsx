@@ -1934,11 +1934,15 @@ export function App() {
         />
         <aside className="library-panel">
         <header className="library-header">
-          <div className="brand-lockup">
+          <a
+            className="brand-lockup"
+            href="/"
+            aria-label={runtimeContext?.surface === "cloud-device" ? "Tracks Server home" : "Tracks home"}
+          >
             <span className="brand-mark"><TracksLogo size={14} /></span>
             <span>Tracks</span>
             <span className="local-badge">{runtimeContext?.surface === "cloud-device" ? "Server" : "Local"}</span>
-          </div>
+          </a>
           <IconButton label="Collapse session library" icon="sidebar" onClick={closeOrCollapseLibrary} />
         </header>
         <div className="search-wrap">

@@ -16,11 +16,11 @@ export const DASHBOARD_HTML = `<!doctype html>
   <body>
     <div class="shell">
       <header class="app-header">
-        <div class="brand-lockup">
+        <a class="brand-lockup" href="/" aria-label="Tracks Server home">
           <span class="brand-mark">${BRAND_ICON}</span>
           <strong>Tracks</strong>
           <span class="server-badge">SERVER</span>
-        </div>
+        </a>
         <div class="header-actions">
           <div class="connection" id="connection"><i></i><span>Access required</span></div>
           <button class="sign-out" id="sign-out" type="button" hidden>Sign out</button>
@@ -97,10 +97,13 @@ button, input { font: inherit; }
 .app-header { display: flex; align-items: center; justify-content: space-between; padding: 0 28px; }
 .app-header { border-bottom: 1px solid #27292b; background: var(--surface); }
 
-.brand-lockup { display: flex; align-items: center; gap: 9px; font-size: 12px; letter-spacing: .01em; }
+.brand-lockup { display: flex; align-items: center; gap: 9px; color: inherit; font-size: 12px; letter-spacing: .01em; text-decoration: none; transition: color 120ms ease, transform 120ms var(--ease-out); }
 .brand-lockup strong { font-weight: 650; }
 .brand-mark, .access-mark, .empty-mark { display: grid; place-items: center; color: var(--accent); background: #191b24; border: 1px solid var(--accent-border); }
 .brand-mark { width: 21px; height: 21px; border-radius: 50%; box-shadow: inset 0 0 0 3px var(--surface); }
+.brand-lockup .brand-mark { transition: color 120ms ease, border-color 120ms ease, background-color 120ms ease; }
+.brand-lockup:active { transform: scale(.97); }
+.brand-lockup:focus-visible { outline: 2px solid #727da9; outline-offset: 4px; border-radius: 4px; }
 .brand-mark svg { width: 13px; height: 13px; }
 .brand-mark path, .access-mark path, .empty-mark path, .device-icon path { stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .server-badge { padding: 2px 5px; color: var(--text-faint); border: 1px solid var(--border); border-radius: 4px; font-size: 9px; font-weight: 600; letter-spacing: .08em; }
@@ -168,6 +171,8 @@ main { width: min(940px, calc(100% - 40px)); margin: 0 auto; padding: 64px 0; }
 @keyframes panel-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
 @media (hover: hover) {
+  .brand-lockup:hover { color: #f0f0f1; }
+  .brand-lockup:hover .brand-mark { color: #eef0ff; background: #1d202b; border-color: #747dab; }
   .field-row button:hover { background: #2a2e3c; border-color: #515876; }
   .sign-out:hover { color: #b7bac0; background: #18191a; border-color: #3a3d41; }
   .device-card:hover { background: #18191a; border-color: #3a3d41; transform: translateY(-1px); }

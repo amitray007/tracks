@@ -90,6 +90,7 @@ describe("Tracks cloud server", () => {
 
     const dashboard = await fetch(cloud.url).then((response) => response.text());
     expect(dashboard).toContain('method="post"');
+    expect(dashboard).toContain('aria-label="Tracks Server home"');
     const dashboardScript = await fetch(`${cloud.url}/dashboard.js`).then((response) => response.text());
     expect(() => new Function(dashboardScript)).not.toThrow();
     expect(dashboardScript).not.toContain("sessionStorage");

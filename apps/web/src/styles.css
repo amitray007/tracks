@@ -148,9 +148,12 @@ code, pre, kbd {
   display: flex;
   align-items: center;
   gap: 9px;
+  color: inherit;
   font-size: 12px;
   font-weight: 650;
   letter-spacing: 0.01em;
+  text-decoration: none;
+  transition: color 120ms ease, transform 120ms var(--ease-out);
 }
 
 .brand-mark {
@@ -163,6 +166,15 @@ code, pre, kbd {
   border: 1px solid #59618c;
   border-radius: 50%;
   box-shadow: inset 0 0 0 3px #111213;
+  transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease;
+}
+
+.brand-lockup:active { transform: scale(0.97); }
+.brand-lockup:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 4px; border-radius: 4px; }
+
+@media (hover: hover) and (pointer: fine) {
+  .brand-lockup:hover { color: #f0f0f1; }
+  .brand-lockup:hover .brand-mark { color: #eef0ff; background: #1d202b; border-color: #747dab; }
 }
 
 .local-badge {
