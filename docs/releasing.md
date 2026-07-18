@@ -20,25 +20,49 @@ Node and installs a small `tracks` launcher.
 
 ## One-time repository setup
 
-Add a fine-grained GitHub token as the Tracks Actions secret
-`HOMEBREW_TAP_TOKEN`. Give it Contents read/write access only to
-`amitray007/homebrew-tap`. Do not reuse a broad personal access token.
+Add two fine-grained GitHub tokens as Tracks Actions secrets:
+
+- `RELEASE_PLEASE_TOKEN`: grant Contents, Issues, and Pull requests read/write
+  access only to `amitray007/tracks`. Release Please needs a user or GitHub App
+  token so its release pull requests trigger the normal CI and secret-scanning
+  workflows. The built-in `GITHUB_TOKEN` does not trigger those follow-up
+  workflows.
+- `HOMEBREW_TAP_TOKEN`: grant Contents read/write access only to
+  `amitray007/homebrew-tap`.
+
+Do not reuse a broad personal access token. The account behind
+`RELEASE_PLEASE_TOKEN` must be allowed to open pull requests in Tracks, but it
+does not need permission to bypass the `main` branch ruleset.
+
+## Version selection
+
+Release Please derives the next version from Conventional Commits merged since
+the last release:
+
+| Change | Commit example | Version before 1.0 |
+| --- | --- | --- |
+| Bug fix or compatible correction | `fix: reconnect shared sessions` | Patch |
+| Genuine new user-facing capability | `feat: add session export` | Minor |
+| Breaking public contract | `feat!: replace share-link format` plus a `BREAKING CHANGE:` footer | Minor |
+| Documentation, tests, chores, CI, or refactors | `docs: explain local sharing` | No release by itself |
+
+Breaking changes become major releases after Tracks deliberately reaches 1.0.
+Commit types describe the change; do not use `feat:` merely to force a minor
+release. For an intentional product-driven version, use a `Release-As: X.Y.Z`
+footer in a Conventional Commit rather than misclassifying the work.
 
 ## Cut a release
 
-1. Update the workspace package versions together and merge the change to
-   `main` after `pnpm check` passes.
-2. Create the tag from the merged commit and push it:
-
-   ```sh
-   git switch main
-   git pull --ff-only
-   git tag -a tracks-cli-vX.Y.Z -m "Tracks CLI vX.Y.Z"
-   git push origin tracks-cli-vX.Y.Z
-   ```
-
-3. Watch the `Release CLI` workflow. It runs the complete workspace tests,
-   builds the package, creates both releases, and updates the tap formula.
+1. Merge ordinary Conventional Commit changes to `main`. The `Release Please`
+   workflow creates or updates one release pull request with the computed
+   version, synchronized workspace package versions, and `CHANGELOG.md`.
+2. Review and merge that release pull request when the accumulated changes are
+   ready to ship. The normal branch rules, approval, CI, and secret scan still
+   apply.
+3. The merge causes Release Please to create the `tracks-cli-vX.Y.Z` tag and
+   Tracks GitHub release. In the same workflow, `Release CLI` runs the complete
+   workspace tests, attaches the CLI artifact, mirrors it to the public tap,
+   and updates the formula.
 4. Verify a clean Homebrew install:
 
    ```sh
@@ -50,8 +74,17 @@ Add a fine-grained GitHub token as the Tracks Actions secret
    tracks web stop
    ```
 
-The workflow is retry-safe: existing release assets are replaced and an
-already-current formula produces no extra tap commit.
+The publishing workflow is retry-safe: existing release assets are replaced
+and an already-current formula produces no extra tap commit. To retry a failed
+publish for an existing release tag without creating a new version, run:
+
+```sh
+gh workflow run release-cli.yml -f tag=tracks-cli-vX.Y.Z
+```
+
+Release Please updates every workspace `package.json` together. `pnpm
+check:versions` rejects version drift if a manual edit changes only part of the
+workspace.
 
 ## Build the artifact locally
 
