@@ -37,7 +37,7 @@ Tracks never invents unavailable provider data. Shared UI components render a do
 
 ## Quick start
 
-Tracks is currently run from source. You need Node.js 22 or newer and Corepack.
+Tracks is currently run from source. You need Node.js 24 or newer and Corepack.
 
 ```sh
 git clone https://github.com/amitray007/tracks.git
