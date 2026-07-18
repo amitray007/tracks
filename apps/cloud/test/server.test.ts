@@ -37,6 +37,11 @@ describe("Tracks cloud server", () => {
 
     const unauthorized = await fetch(`${cloud.url}/api/devices`);
     expect(unauthorized.status).toBe(401);
+
+    const dashboard = await fetch(cloud.url).then((response) => response.text());
+    expect(dashboard).toContain('method="post"');
+    const dashboardScript = await fetch(`${cloud.url}/dashboard.js`).then((response) => response.text());
+    expect(() => new Function(dashboardScript)).not.toThrow();
   });
 
   it("shows only currently connected device metadata", async () => {
