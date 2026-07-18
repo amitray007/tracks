@@ -62,14 +62,14 @@ The installed-style CLI uses one background agent for the loopback web server, C
 
 ```sh
 pnpm build
-pnpm tracks -- doctor
-pnpm tracks -- web start
-pnpm tracks -- status
+pnpm tracks doctor
+pnpm tracks web start
+pnpm tracks status
 
 # Optional self-hosted connection. Use --token-stdin to avoid shell history.
 printf '%s' "$TRACKS_CLOUD_TOKEN" | \
-  pnpm tracks -- login --server http://127.0.0.1:8787 --token-stdin
-pnpm tracks -- connect
+  pnpm tracks login --server http://127.0.0.1:8787 --token-stdin
+pnpm tracks connect
 ```
 
 `tracks web stop` stops the background agent. `tracks connect stop` disconnects only the hosted connection and leaves local viewing available. `tracks logout` removes the bootstrap credential. The compatibility command `tracks serve --no-open` remains available for a foreground process.

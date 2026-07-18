@@ -430,6 +430,7 @@ async function runConfig(arguments_: string[]): Promise<void> {
 
 async function main(): Promise<void> {
   const raw = process.argv.slice(2);
+  while (raw[0] === "--") raw.shift();
   if (raw.includes("--help") || raw.includes("-h") || raw[0] === "help") {
     console.log(HELP);
     return;
