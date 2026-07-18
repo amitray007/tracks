@@ -6,7 +6,9 @@ Thanks for helping improve Tracks. The project is pre-release, so small, focused
 
 Requirements:
 
-- Node.js 24 or newer.
+- Node.js 22.12 or newer for installation, builds, tests, and CLI development.
+- Node.js 24 or newer when using the Portless-powered `pnpm dev` command. On
+  Node.js 22, use `pnpm dev:plain` instead.
 - pnpm 10.33.2 through Corepack.
 
 ```sh

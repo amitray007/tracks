@@ -14,7 +14,9 @@ The installed product must not depend on a development proxy. It binds to loopba
 
 - Use a pnpm workspace with `apps/web`, `apps/server`, `apps/cli`, and independent core/provider packages.
 - Use TypeScript for the initial canonical model, adapter boundary, Claude adapter, server, CLI, and React UI.
-- Require Node.js 24 or newer for the current development and foreground CLI slice.
+- Support Node.js 22.12 or newer for the workspace and CLI runtime. Use Node.js
+  24 or newer for the optional Portless development command because Portless
+  requires it; keep the fixed-loopback development path available on Node.js 22.
 - Use runtime schemas at API and canonical boundaries rather than trusting TypeScript types on the wire.
 - Bind the shipped/production-like server only to `127.0.0.1`, `::1`, or `localhost`; reject non-local Host and Origin values.
 - Serve the built web application and API from one loopback origin in the CLI path.

@@ -62,7 +62,9 @@ brew uninstall tracks
 
 ### Run from source
 
-Source development requires Node.js 24 or newer and Corepack.
+Source installation, builds, tests, and the CLI support Node.js 22.12 or newer.
+Node.js 24 is recommended and required only for the Portless-powered `pnpm dev`
+command; use `pnpm dev:plain` on Node.js 22.
 
 ```sh
 git clone https://github.com/amitray007/tracks.git
