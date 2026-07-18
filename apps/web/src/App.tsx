@@ -620,12 +620,12 @@ function ServerConnectionDialog({
             />
           </label>
           <label>
-            <span>Access token</span>
+            <span>Device token</span>
             <input
               type="password"
               value={token}
               onChange={(event) => setToken(event.target.value)}
-              placeholder={configured ? "Saved token" : "Paste server access token"}
+              placeholder={configured ? "Saved device token" : "Paste device token"}
               autoComplete="off"
               required={!configured || serverUrl.trim() !== remote?.serverUrl}
               minLength={32}
@@ -1533,6 +1533,10 @@ export function App() {
           setRuntimeContext((context) => context ? { ...context, online } : context);
           setLiveState(online ? "live" : "reconnecting");
           if (online) refreshLiveData();
+          else if (sharedView) {
+            setTrack(null);
+            setTrackError(null);
+          }
         }
       },
       onError: () => setLiveState("reconnecting"),

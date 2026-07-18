@@ -39,10 +39,9 @@ interface ApiRoute {
 function apiRoute(): ApiRoute {
   const deviceMatch = window.location.pathname.match(/^\/device\/([^/]+)/);
   if (deviceMatch) {
-    const token = window.sessionStorage.getItem("tracks-cloud-token") ?? "";
     return {
       base: `/api/devices/${encodeURIComponent(decodeURIComponent(deviceMatch[1]!))}`,
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers: {},
       surface: "cloud-device",
     };
   }
@@ -81,6 +80,10 @@ async function fetchJson(
 
   const value: unknown = await response.json();
   if (!response.ok) {
+    if (response.status === 401 && route.surface === "cloud-device") {
+      const next = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      window.location.assign(`/?next=${encodeURIComponent(next)}`);
+    }
     const message = typeof value === "object" && value && "error" in value
       ? String(value.error)
       : `Tracks request failed with ${response.status}`;

@@ -22,9 +22,9 @@ export function validateServerToken(token: string): string {
 }
 
 export async function verifyServerAccess(serverUrl: string, token: string): Promise<void> {
-  const response = await fetch(`${serverUrl}/api/devices`, {
+  const response = await fetch(`${serverUrl}/api/agent/access`, {
     headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
     signal: AbortSignal.timeout(5_000),
   });
-  if (!response.ok) throw new Error(`Tracks Server rejected access (${response.status}).`);
+  if (!response.ok) throw new Error(`Tracks Server rejected the device token (${response.status}).`);
 }

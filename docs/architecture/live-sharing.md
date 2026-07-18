@@ -69,7 +69,7 @@ The data plane is request-driven. A device MUST NOT upload its complete library 
 - A share viewer that cannot enumerate the source device library and reports a deliberate offline state.
 - An unauthenticated health endpoint and a container image containing the hosted web assets.
 
-`apps/cli` implements the complementary single-agent lifecycle: `web`, `login`, `connect`, `logout`, `config`, and `status`; one source watcher/index serves both local and remote requests; reconnect uses bounded exponential backoff with jitter. The local viewer drives the same connection controller through loopback-only endpoints. `TRACKS_CLOUD_TOKEN` is a self-hosted bootstrap credential, not the final multi-account authentication design. It is stored in a user-only `0600` config file in this slice, is never returned to the browser, and is removed on logout; production device credentials still require OS credential storage and short-lived connection tokens.
+`apps/cli` implements the complementary single-agent lifecycle: `web`, `login`, `connect`, `logout`, `config`, and `status`; one source watcher/index serves both local and remote requests; reconnect uses bounded exponential backoff with jitter. The local viewer drives the same connection controller through loopback-only endpoints. The self-hosted bootstrap requires different `TRACKS_OWNER_TOKEN` and `TRACKS_DEVICE_TOKEN` values. The owner token is exchanged for a short-lived, HttpOnly, SameSite browser-session cookie and is never kept in browser storage. The device token can open the outbound agent connection but cannot enumerate devices or session data. It is stored in a user-only `0600` CLI config file and removed on logout; production device credentials still require OS credential storage and short-lived connection tokens.
 
 ## Identity and links
 
@@ -131,13 +131,13 @@ docker compose up --build -d
 curl --fail http://127.0.0.1:8787/api/health
 ~~~
 
-For internet exposure, operators must put it behind HTTPS/WSS, configure origin and proxy limits, replace the bootstrap token with production authentication, and decide how the minimal account/share control plane is stored. Adding a database is not permission to store session content.
+For internet exposure, operators must put it behind HTTPS/WSS, set the public URL so browser cookies are marked `Secure`, configure origin and proxy limits, replace bootstrap owner/device tokens with production account and device authorization, and decide how the minimal account/share control plane is stored. Adding a database is not permission to store session content.
 
 ## Delivery sequence
 
 1. **Implemented:** presence foundation, versioned protocol, in-memory server, dashboard, health, and container deployment.
 2. **Implemented:** local agent lifecycle with `web`, `status`, `config`, one watcher, and background process state.
-3. **Bootstrap implemented:** token login, outbound `connect`, reconnect, and owner device dashboard. Browser device grant and account authorization remain.
+3. **Bootstrap implemented:** separate owner/device tokens, HttpOnly owner sessions, outbound `connect`, reconnect, and owner-only device dashboard. Browser device grant and multi-account authorization remain.
 4. **Implemented for library/track reads:** bounded pages, timeouts, concurrency backpressure, invalidations, and server-side device view. Explicit cancellation and artifact ranges remain.
 5. **Implemented for one session:** capability link, viewer isolation, and offline state. Project selection, revoke, expiry, and durable control metadata remain.
 6. **Remaining:** TLS deployment guide, rate limits, content-free audit metadata, multi-instance ephemeral routing, and load/abuse tests.

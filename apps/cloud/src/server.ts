@@ -44,7 +44,8 @@ const MIME_TYPES: Record<string, string> = {
 export interface TracksCloudOptions {
   host?: string;
   port?: number;
-  token: string;
+  ownerToken: string;
+  deviceToken: string;
   heartbeatIntervalMs?: number;
   maxDevices?: number;
   maxEventClients?: number;
@@ -87,6 +88,10 @@ interface LiveShare {
   createdAt: string;
 }
 
+interface OwnerSession {
+  expiresAt: number;
+}
+
 class DeviceOfflineError extends Error {}
 class DeviceTimeoutError extends Error {}
 class DeviceCapacityError extends Error {}
@@ -107,12 +112,35 @@ function authorized(request: IncomingMessage, expectedDigest: Buffer): boolean {
   return timingSafeEqual(tokenDigest(supplied), expectedDigest);
 }
 
+const OWNER_SESSION_COOKIE = "tracks_owner_session";
+const OWNER_SESSION_LIFETIME_SECONDS = 12 * 60 * 60;
+
+function cookieValue(request: IncomingMessage, name: string): string | null {
+  const cookie = request.headers.cookie;
+  if (!cookie) return null;
+  for (const pair of cookie.split(";")) {
+    const separator = pair.indexOf("=");
+    if (separator < 0 || pair.slice(0, separator).trim() !== name) continue;
+    try {
+      return decodeURIComponent(pair.slice(separator + 1).trim());
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function sessionKey(value: string): string {
+  return tokenDigest(value).toString("hex");
+}
+
 function setSecurityHeaders(response: ServerResponse): void {
   response.setHeader("Cache-Control", "no-store");
   response.setHeader("Content-Security-Policy", "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
   response.setHeader("Referrer-Policy", "no-referrer");
   response.setHeader("X-Content-Type-Options", "nosniff");
   response.setHeader("X-Frame-Options", "DENY");
+  response.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
 }
 
 function send(response: ServerResponse, statusCode: number, contentType: string, body: string): void {
@@ -200,8 +228,14 @@ function integerParameter(
 }
 
 export async function startTracksCloud(options: TracksCloudOptions): Promise<RunningTracksCloud> {
-  if (options.token.length < MINIMUM_TOKEN_LENGTH) {
-    throw new Error(`TRACKS_CLOUD_TOKEN must contain at least ${MINIMUM_TOKEN_LENGTH} characters.`);
+  if (options.ownerToken.length < MINIMUM_TOKEN_LENGTH) {
+    throw new Error(`TRACKS_OWNER_TOKEN must contain at least ${MINIMUM_TOKEN_LENGTH} characters.`);
+  }
+  if (options.deviceToken.length < MINIMUM_TOKEN_LENGTH) {
+    throw new Error(`TRACKS_DEVICE_TOKEN must contain at least ${MINIMUM_TOKEN_LENGTH} characters.`);
+  }
+  if (timingSafeEqual(tokenDigest(options.ownerToken), tokenDigest(options.deviceToken))) {
+    throw new Error("TRACKS_OWNER_TOKEN and TRACKS_DEVICE_TOKEN must be different secrets.");
   }
 
   const host = options.host ?? "127.0.0.1";
@@ -222,13 +256,44 @@ export async function startTracksCloud(options: TracksCloudOptions): Promise<Run
     throw new Error("Connection limits must be positive integers.");
   }
   const webDirectory = options.webDirectory === undefined ? DEFAULT_WEB_DIRECTORY : options.webDirectory;
-  const expectedTokenDigest = tokenDigest(options.token);
+  const expectedOwnerTokenDigest = tokenDigest(options.ownerToken);
+  const expectedDeviceTokenDigest = tokenDigest(options.deviceToken);
+  const secureOwnerCookie = options.publicUrl?.startsWith("https://") ?? false;
   const devices = new Map<string, ManagedDevice>();
   const eventClients = new Set<ServerResponse>();
   const relayEventClients = new Set<RelayEventClient>();
   const shares = new Map<string, LiveShare>();
+  const ownerSessions = new Map<string, OwnerSession>();
   const webSocketServer = new WebSocketServer({ noServer: true, maxPayload: 4 * 1024 * 1024 });
-  const startedAt = Date.now();
+  function ownerAuthorized(request: IncomingMessage): boolean {
+    const value = cookieValue(request, OWNER_SESSION_COOKIE);
+    if (!value) return false;
+    const key = sessionKey(value);
+    const session = ownerSessions.get(key);
+    if (!session) return false;
+    if (session.expiresAt <= Date.now()) {
+      ownerSessions.delete(key);
+      return false;
+    }
+    return true;
+  }
+
+  function ownerCookie(value: string, maxAge: number): string {
+    return [
+      `${OWNER_SESSION_COOKIE}=${encodeURIComponent(value)}`,
+      "Path=/",
+      "HttpOnly",
+      "SameSite=Strict",
+      `Max-Age=${maxAge}`,
+      ...(secureOwnerCookie ? ["Secure"] : []),
+    ].join("; ");
+  }
+
+  function requireOwner(request: IncomingMessage, response: ServerResponse): boolean {
+    if (ownerAuthorized(request)) return true;
+    sendJson(response, 401, { error: "Owner sign-in required." });
+    return false;
+  }
 
   function connectedDevices(): ConnectedDevicesResponse {
     const projected: ConnectedDevice[] = [...devices.values()]
@@ -375,29 +440,56 @@ export async function startTracksCloud(options: TracksCloudOptions): Promise<Run
         return;
       }
       if (method === "GET" && requestUrl.pathname === "/api/health") {
-        sendJson(response, 200, {
-          ok: true,
-          service: "tracks-cloud",
-          protocolVersion: LIVE_PROTOCOL_VERSION,
-          connectedDevices: devices.size,
-          liveShares: shares.size,
-          uptimeSeconds: Math.floor((Date.now() - startedAt) / 1_000),
+        sendJson(response, 200, { ok: true });
+        return;
+      }
+      if (method === "GET" && requestUrl.pathname === "/api/auth/session") {
+        if (!requireOwner(request, response)) return;
+        sendJson(response, 200, { authenticated: true });
+        return;
+      }
+      if (method === "POST" && requestUrl.pathname === "/api/auth/login") {
+        const body = await readJsonBody(request);
+        const token = typeof body === "object" && body && "token" in body
+          ? String(body.token)
+          : "";
+        if (
+          token.length < MINIMUM_TOKEN_LENGTH
+          || !timingSafeEqual(tokenDigest(token), expectedOwnerTokenDigest)
+        ) {
+          sendJson(response, 401, { error: "The owner token was not accepted." });
+          return;
+        }
+        const sessionToken = randomBytes(32).toString("base64url");
+        ownerSessions.set(sessionKey(sessionToken), {
+          expiresAt: Date.now() + OWNER_SESSION_LIFETIME_SECONDS * 1_000,
         });
+        response.setHeader("Set-Cookie", ownerCookie(sessionToken, OWNER_SESSION_LIFETIME_SECONDS));
+        sendJson(response, 200, { authenticated: true });
+        return;
+      }
+      if (method === "POST" && requestUrl.pathname === "/api/auth/logout") {
+        const sessionToken = cookieValue(request, OWNER_SESSION_COOKIE);
+        if (sessionToken) ownerSessions.delete(sessionKey(sessionToken));
+        response.setHeader("Set-Cookie", ownerCookie("", 0));
+        sendJson(response, 200, { authenticated: false });
+        return;
+      }
+      if (method === "GET" && requestUrl.pathname === "/api/agent/access") {
+        if (!authorized(request, expectedDeviceTokenDigest)) {
+          sendJson(response, 401, { error: "Device access token required." });
+          return;
+        }
+        sendJson(response, 200, { authorized: true });
         return;
       }
       if (method === "GET" && requestUrl.pathname === "/api/devices") {
-        if (!authorized(request, expectedTokenDigest)) {
-          sendJson(response, 401, { error: "Server access token required." });
-          return;
-        }
+        if (!requireOwner(request, response)) return;
         sendJson(response, 200, connectedDevices());
         return;
       }
       if (method === "GET" && requestUrl.pathname === "/api/events") {
-        if (!authorized(request, expectedTokenDigest)) {
-          sendJson(response, 401, { error: "Server access token required." });
-          return;
-        }
+        if (!requireOwner(request, response)) return;
         if (eventClients.size + relayEventClients.size >= maxEventClients) {
           sendJson(response, 503, { error: "Presence stream capacity reached." });
           return;
@@ -415,10 +507,7 @@ export async function startTracksCloud(options: TracksCloudOptions): Promise<Run
 
       const deviceContextMatch = requestUrl.pathname.match(/^\/api\/devices\/([^/]+)\/context$/);
       if (method === "GET" && deviceContextMatch) {
-        if (!authorized(request, expectedTokenDigest)) {
-          sendJson(response, 401, { error: "Server access token required." });
-          return;
-        }
+        if (!requireOwner(request, response)) return;
         const deviceId = decodeURIComponent(deviceContextMatch[1]!);
         const managed = devices.get(deviceId);
         sendJson(response, 200, {
@@ -432,10 +521,7 @@ export async function startTracksCloud(options: TracksCloudOptions): Promise<Run
 
       const deviceTracksMatch = requestUrl.pathname.match(/^\/api\/devices\/([^/]+)\/tracks$/);
       if (method === "GET" && deviceTracksMatch) {
-        if (!authorized(request, expectedTokenDigest)) {
-          sendJson(response, 401, { error: "Server access token required." });
-          return;
-        }
+        if (!requireOwner(request, response)) return;
         const deviceId = decodeURIComponent(deviceTracksMatch[1]!);
         try {
           const payload = await requestDevice(deviceId, "library.page", {
@@ -454,10 +540,7 @@ export async function startTracksCloud(options: TracksCloudOptions): Promise<Run
 
       const deviceTrackMatch = requestUrl.pathname.match(/^\/api\/devices\/([^/]+)\/tracks\/(.+)$/);
       if (method === "GET" && deviceTrackMatch) {
-        if (!authorized(request, expectedTokenDigest)) {
-          sendJson(response, 401, { error: "Server access token required." });
-          return;
-        }
+        if (!requireOwner(request, response)) return;
         const deviceId = decodeURIComponent(deviceTrackMatch[1]!);
         const trackId = decodeURIComponent(deviceTrackMatch[2]!);
         try {
@@ -478,30 +561,21 @@ export async function startTracksCloud(options: TracksCloudOptions): Promise<Run
 
       const deviceEventsMatch = requestUrl.pathname.match(/^\/api\/devices\/([^/]+)\/events$/);
       if (method === "GET" && deviceEventsMatch) {
-        if (!authorized(request, expectedTokenDigest)) {
-          sendJson(response, 401, { error: "Server access token required." });
-          return;
-        }
+        if (!requireOwner(request, response)) return;
         addRelayEventClient(response, request, decodeURIComponent(deviceEventsMatch[1]!));
         return;
       }
 
       const deviceViewerMatch = requestUrl.pathname.match(/^\/api\/devices\/([^/]+)\/viewer$/);
       if (method === "GET" && deviceViewerMatch) {
-        if (!authorized(request, expectedTokenDigest)) {
-          sendJson(response, 401, { error: "Server access token required." });
-          return;
-        }
+        if (!requireOwner(request, response)) return;
         sendJson(response, 200, { login: null, name: null, avatarUrl: null, source: "fallback" });
         return;
       }
 
       const deviceShareMatch = requestUrl.pathname.match(/^\/api\/devices\/([^/]+)\/shares$/);
       if (method === "POST" && deviceShareMatch) {
-        if (!authorized(request, expectedTokenDigest)) {
-          sendJson(response, 401, { error: "Server access token required." });
-          return;
-        }
+        if (!requireOwner(request, response)) return;
         const deviceId = decodeURIComponent(deviceShareMatch[1]!);
         if (!devices.has(deviceId)) {
           sendJson(response, 503, { error: "The source device is offline.", code: "device_offline" });
@@ -595,6 +669,13 @@ export async function startTracksCloud(options: TracksCloudOptions): Promise<Run
         && webDirectory
         && (/^\/device\/[^/]+\/?$/.test(requestUrl.pathname) || /^\/s\/[^/]+\/?$/.test(requestUrl.pathname))
       ) {
+        if (/^\/device\/[^/]+\/?$/.test(requestUrl.pathname) && !ownerAuthorized(request)) {
+          const next = `${requestUrl.pathname}${requestUrl.search}`;
+          response.statusCode = 302;
+          response.setHeader("Location", `/?next=${encodeURIComponent(next)}`);
+          response.end();
+          return;
+        }
         if (await serveWebFile("/index.html", webDirectory, response, true)) return;
         sendJson(response, 503, { error: "The hosted session viewer has not been built." });
         return;
@@ -616,7 +697,7 @@ export async function startTracksCloud(options: TracksCloudOptions): Promise<Run
       rejectUpgrade(socket, 404, "Not Found");
       return;
     }
-    if (!authorized(request, expectedTokenDigest)) {
+    if (!authorized(request, expectedDeviceTokenDigest)) {
       rejectUpgrade(socket, 401, "Unauthorized");
       return;
     }
@@ -763,6 +844,10 @@ export async function startTracksCloud(options: TracksCloudOptions): Promise<Run
   });
 
   const heartbeat = setInterval(() => {
+    const now = Date.now();
+    for (const [key, session] of ownerSessions) {
+      if (session.expiresAt <= now) ownerSessions.delete(key);
+    }
     for (const managed of devices.values()) {
       if (!managed.alive) {
         managed.socket.terminate();

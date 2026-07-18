@@ -46,17 +46,18 @@ The hosted server can also run directly during development:
 pnpm cloud:dev
 ```
 
-It starts an isolated server dashboard at `http://127.0.0.1:8787` and prints a temporary bootstrap token. Connected devices appear in real time and open the shared session viewer through bounded, on-demand relay requests.
+It starts an isolated server dashboard at `http://127.0.0.1:8787` and prints separate temporary owner and device tokens. Connected devices appear in real time and open the shared session viewer through bounded, on-demand relay requests.
 
 For a self-hosted bootstrap deployment:
 
 ```sh
 cp .env.example .env
-# Replace TRACKS_CLOUD_TOKEN in .env with: openssl rand -hex 32
+# Generate different TRACKS_OWNER_TOKEN and TRACKS_DEVICE_TOKEN values with:
+# openssl rand -hex 32
 docker compose up --build
 ```
 
-Compose binds the dashboard to `127.0.0.1:8787` by default, runs the container read-only as a non-root user, and mounts no session or database volume. Put it behind HTTPS before changing the bind address. The bootstrap token is not the planned production account/device authentication flow.
+Compose binds the dashboard to `127.0.0.1:8787` by default, runs the container read-only as a non-root user, and mounts no session or database volume. The owner token is exchanged for an HttpOnly browser session; the device token can connect CLI agents but cannot read the owner dashboard. Put Tracks behind HTTPS and set `TRACKS_CLOUD_PUBLIC_URL` before changing the bind address.
 
 The installed-style CLI uses one background agent for the loopback web server, Claude source watcher, and optional outbound server connection:
 
@@ -67,11 +68,11 @@ pnpm tracks web start
 pnpm tracks status
 
 # Optional self-hosted connection. Use --token-stdin to avoid shell history.
-printf '%s' "$TRACKS_CLOUD_TOKEN" | \
+printf '%s' "$TRACKS_DEVICE_TOKEN" | \
   pnpm tracks login --server http://127.0.0.1:8787 --token-stdin
 ```
 
-`tracks login` verifies and saves access without starting either web or hosted presence. `tracks connect --server … --token-stdin` performs one-step first-time setup and connection, while plain `tracks connect` resumes saved access. The local viewer exposes the same connect, disconnect, and logout controls without returning the saved token to the browser. `tracks web start` and `tracks web stop` change only the loopback viewer; `tracks connect` and `tracks connect stop` change only hosted presence. The shared background agent remains alive while either module needs it. `tracks logout` disconnects, removes saved server access, removes the device from the server dashboard, and makes its device-backed live links report offline until it reconnects. The compatibility command `tracks serve --no-open` remains available for a foreground process.
+`tracks login` verifies and saves the device token without starting either web or hosted presence. `tracks connect --server … --token-stdin` performs one-step first-time setup and connection, while plain `tracks connect` resumes saved access. The local viewer exposes the same connect, disconnect, and logout controls without returning the saved token to the browser. `tracks web start` and `tracks web stop` change only the loopback viewer; `tracks connect` and `tracks connect stop` change only hosted presence. The shared background agent remains alive while either module needs it. `tracks logout` disconnects, removes saved server access, removes the device from the server dashboard, and makes its device-backed live links report offline until it reconnects. The compatibility command `tracks serve --no-open` remains available for a foreground process.
 
 ## Documentation
 

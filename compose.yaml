@@ -9,7 +9,9 @@ services:
     environment:
       TRACKS_CLOUD_HOST: 0.0.0.0
       TRACKS_CLOUD_PORT: 8787
-      TRACKS_CLOUD_TOKEN: ${TRACKS_CLOUD_TOKEN:?Set TRACKS_CLOUD_TOKEN to a random value with at least 32 characters}
+      TRACKS_OWNER_TOKEN: ${TRACKS_OWNER_TOKEN:?Set TRACKS_OWNER_TOKEN to a random value with at least 32 characters}
+      TRACKS_DEVICE_TOKEN: ${TRACKS_DEVICE_TOKEN:?Set TRACKS_DEVICE_TOKEN to a different random value with at least 32 characters}
+      TRACKS_CLOUD_PUBLIC_URL: ${TRACKS_CLOUD_PUBLIC_URL:-}
     ports:
       - "${TRACKS_CLOUD_BIND:-127.0.0.1}:${TRACKS_CLOUD_PORT:-8787}:8787"
     init: true

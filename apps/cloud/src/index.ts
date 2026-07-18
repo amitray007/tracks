@@ -2,8 +2,10 @@
 
 import { startTracksCloud } from "./server.js";
 
-const token = process.env.TRACKS_CLOUD_TOKEN;
-if (!token) throw new Error("TRACKS_CLOUD_TOKEN is required.");
+const ownerToken = process.env.TRACKS_OWNER_TOKEN;
+const deviceToken = process.env.TRACKS_DEVICE_TOKEN;
+if (!ownerToken) throw new Error("TRACKS_OWNER_TOKEN is required.");
+if (!deviceToken) throw new Error("TRACKS_DEVICE_TOKEN is required.");
 
 const port = Number.parseInt(process.env.TRACKS_CLOUD_PORT ?? "8787", 10);
 if (!Number.isInteger(port) || port < 1 || port > 65_535) {
@@ -15,7 +17,9 @@ const webDirectory = process.env.TRACKS_CLOUD_WEB_DIR;
 const cloud = await startTracksCloud({
   host,
   port,
-  token,
+  ownerToken,
+  deviceToken,
+  ...(process.env.TRACKS_CLOUD_PUBLIC_URL ? { publicUrl: process.env.TRACKS_CLOUD_PUBLIC_URL } : {}),
   ...(webDirectory ? { webDirectory } : {}),
 });
 console.log(`Tracks Server is ready at ${cloud.url}`);

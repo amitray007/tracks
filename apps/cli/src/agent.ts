@@ -136,13 +136,13 @@ export async function runBackgroundAgent(): Promise<void> {
   async function connectRemote(input?: { serverUrl?: string; token?: string }): Promise<RemoteConnectionSnapshot> {
     let nextConfig = config;
     if (input?.serverUrl || input?.token) {
-      if (!input.serverUrl || !input.token) throw new Error("Provide both the server URL and access token.");
+      if (!input.serverUrl || !input.token) throw new Error("Provide both the server URL and device token.");
       const serverUrl = normalizeServerUrl(input.serverUrl);
       const token = validateServerToken(input.token);
       await verifyServerAccess(serverUrl, token);
       nextConfig = { ...config, cloud: { serverUrl, token, connect: true } };
     } else if (!config.cloud.serverUrl || !config.cloud.token) {
-      throw new Error("Enter a Tracks Server URL and access token first.");
+      throw new Error("Enter a Tracks Server URL and device token first.");
     } else {
       nextConfig = { ...config, cloud: { ...config.cloud, connect: true } };
     }

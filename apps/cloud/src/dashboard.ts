@@ -21,7 +21,10 @@ export const DASHBOARD_HTML = `<!doctype html>
           <strong>Tracks</strong>
           <span class="server-badge">SERVER</span>
         </div>
-        <div class="connection" id="connection"><i></i><span>Access required</span></div>
+        <div class="header-actions">
+          <div class="connection" id="connection"><i></i><span>Access required</span></div>
+          <button class="sign-out" id="sign-out" type="button" hidden>Sign out</button>
+        </div>
       </header>
 
       <main>
@@ -30,12 +33,12 @@ export const DASHBOARD_HTML = `<!doctype html>
             <span class="access-mark">${BRAND_ICON}</span>
             <p class="eyebrow">SERVER ACCESS</p>
             <h1 id="access-title">Sign in to Tracks</h1>
-            <p>Enter your server access token to continue.</p>
+            <p>Enter the owner token to manage connected devices.</p>
           </div>
           <form id="access-form" method="post" action="/">
-            <label for="access-token">Access token</label>
+            <label for="access-token">Owner token</label>
             <div class="field-row">
-              <input id="access-token" name="token" type="password" autocomplete="current-password" placeholder="Paste server access token" required minlength="32" />
+              <input id="access-token" name="token" type="password" autocomplete="current-password" placeholder="Paste owner token" required minlength="32" />
               <button type="submit"><span>Connect</span></button>
             </div>
             <p class="error" id="access-error" role="alert" aria-live="polite"></p>
@@ -106,6 +109,9 @@ button, input { font: inherit; }
 .connection { display: flex; align-items: center; gap: 7px; color: #777b81; font-size: 10px; }
 .connection i { width: 6px; height: 6px; border-radius: 50%; background: #777b82; }
 .connection[data-live="true"] i { background: var(--green); box-shadow: 0 0 0 3px rgba(141, 187, 114, .08); }
+.header-actions { display: flex; align-items: center; gap: 14px; }
+.sign-out { padding: 4px 7px; color: #85898f; background: transparent; border: 1px solid #303236; border-radius: 5px; font-size: 9px; cursor: pointer; transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease; }
+.sign-out:focus-visible { outline: 2px solid #727da9; outline-offset: 2px; }
 
 main { width: min(940px, calc(100% - 40px)); margin: 0 auto; padding: 64px 0; }
 .eyebrow { margin: 0; color: #73777d; font-size: 9px; font-weight: 650; letter-spacing: .12em; }
@@ -165,6 +171,7 @@ main { width: min(940px, calc(100% - 40px)); margin: 0 auto; padding: 64px 0; }
 
 @media (hover: hover) {
   .field-row button:hover { background: #2a2e3c; border-color: #515876; }
+  .sign-out:hover { color: #b7bac0; background: #18191a; border-color: #3a3d41; }
   .device-card:hover { background: #18191a; border-color: #3a3d41; transform: translateY(-1px); }
   .device-card:hover:active { transform: scale(.985); }
 }
@@ -204,6 +211,7 @@ const deviceGrid = document.querySelector('#device-grid');
 const deviceEmpty = document.querySelector('#device-empty');
 const deviceCount = document.querySelector('#device-count');
 const connection = document.querySelector('#connection');
+const signOut = document.querySelector('#sign-out');
 let streamAbort = null;
 
 function setConnection(live, label) {
@@ -261,29 +269,29 @@ function renderDevices(payload) {
   }
 }
 
-async function authorizedFetch(path, token) {
-  return fetch(path, { headers: { Authorization: 'Bearer ' + token }, cache: 'no-store' });
+async function ownerFetch(path, init = {}) {
+  return fetch(path, { ...init, cache: 'no-store', credentials: 'same-origin' });
 }
 
-async function loadDevices(token) {
-  const response = await authorizedFetch('/api/devices', token);
-  if (response.status === 401) throw new Error('The access token was not accepted.');
+async function loadDevices() {
+  const response = await ownerFetch('/api/devices');
+  if (response.status === 401) throw new Error('Owner sign-in is required.');
   if (!response.ok) throw new Error('Tracks Server is unavailable.');
   const payload = await response.json();
   renderDevices(payload);
   return payload;
 }
 
-async function streamEvents(token) {
+async function streamEvents() {
   if (streamAbort) streamAbort.abort();
   streamAbort = new AbortController();
 
   while (!streamAbort.signal.aborted) {
     try {
       const response = await fetch('/api/events', {
-        headers: { Authorization: 'Bearer ' + token },
         signal: streamAbort.signal,
-        cache: 'no-store'
+        cache: 'no-store',
+        credentials: 'same-origin'
       });
       if (!response.ok) throw new Error('Presence stream unavailable');
       setConnection(true, 'Connected');
@@ -311,37 +319,61 @@ async function streamEvents(token) {
   }
 }
 
-async function connect(token) {
+function showSignedOut() {
+  if (streamAbort) streamAbort.abort();
+  accessPanel.hidden = false;
+  devicesSection.hidden = true;
+  signOut.hidden = true;
+  accessToken.value = '';
+  setConnection(false, 'Access required');
+}
+
+async function showDashboard() {
   accessError.textContent = '';
   setConnecting(true);
   try {
-    await loadDevices(token);
-    sessionStorage.setItem('tracks-cloud-token', token);
+    await loadDevices();
+    const next = new URL(window.location.href).searchParams.get('next');
+    if (next && next.startsWith('/device/') && !next.startsWith('//')) {
+      window.location.assign(next);
+      return;
+    }
     accessPanel.hidden = true;
     devicesSection.hidden = false;
-    void streamEvents(token);
+    signOut.hidden = false;
+    void streamEvents();
   } finally {
     setConnecting(false);
   }
 }
 
+async function signIn(token) {
+  const response = await ownerFetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token })
+  });
+  if (response.status === 401) throw new Error('The owner token was not accepted.');
+  if (!response.ok) throw new Error('Tracks Server is unavailable.');
+  accessToken.value = '';
+  await showDashboard();
+}
+
 accessForm.addEventListener('submit', event => {
   event.preventDefault();
   const token = accessToken.value.trim();
-  void connect(token).catch(error => {
+  void signIn(token).catch(error => {
     accessError.textContent = error.message;
     setConnection(false, 'Access required');
     accessToken.focus();
   });
 });
 
-const saved = sessionStorage.getItem('tracks-cloud-token');
-if (saved) {
-  void connect(saved).catch(() => {
-    sessionStorage.removeItem('tracks-cloud-token');
-    accessPanel.hidden = false;
-    devicesSection.hidden = true;
-    setConnection(false, 'Access required');
-  });
-}
+signOut.addEventListener('click', () => {
+  void ownerFetch('/api/auth/logout', { method: 'POST' }).finally(showSignedOut);
+});
+
+void ownerFetch('/api/auth/session')
+  .then(response => response.ok ? showDashboard() : showSignedOut())
+  .catch(showSignedOut);
 `;

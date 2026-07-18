@@ -36,7 +36,7 @@ Usage:
   tracks serve [--source <directory>] [--port <number>] [--no-open]
 
 Local web and the hosted device connection are independent. Login only verifies
-and saves server access; connect starts presence, and web starts the local viewer.
+and saves the device token; connect starts presence, and web starts the local viewer.
 Use TRACKS_STATE_DIR to isolate config/runtime state.`;
 
 const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -332,7 +332,7 @@ async function runLogin(arguments_: string[]): Promise<void> {
   if (!values.server) throw new Error("tracks login requires --server <url>.");
   const token = validateServerToken(values["token-stdin"]
     ? await readTokenFromStdin()
-    : values.token ?? process.env.TRACKS_CLOUD_TOKEN ?? "");
+    : values.token ?? process.env.TRACKS_DEVICE_TOKEN ?? "");
   const serverUrl = normalizeServerUrl(values.server);
   await verifyServerAccess(serverUrl, token);
   const config = await readConfig();
@@ -413,7 +413,7 @@ async function runConnect(arguments_: string[]): Promise<void> {
     if (!values.server) throw new Error("tracks connect requires --server <url> when configuring access.");
     const token = validateServerToken(values["token-stdin"]
       ? await readTokenFromStdin()
-      : values.token ?? process.env.TRACKS_CLOUD_TOKEN ?? "");
+      : values.token ?? process.env.TRACKS_DEVICE_TOKEN ?? "");
     const serverUrl = normalizeServerUrl(values.server);
     await verifyServerAccess(serverUrl, token);
     config = { ...config, cloud: { serverUrl, token, connect: true } };

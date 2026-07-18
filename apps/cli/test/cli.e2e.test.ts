@@ -21,7 +21,8 @@ const fixturePath = join(
   "fixtures",
   "basic-session.jsonl",
 );
-const TOKEN = "tracks-cli-e2e-token-with-at-least-32-characters";
+const OWNER_TOKEN = "tracks-cli-owner-token-with-at-least-32-characters";
+const DEVICE_TOKEN = "tracks-cli-device-token-with-at-least-32-characters";
 const temporaryRoots: string[] = [];
 const clouds: RunningTracksCloud[] = [];
 const stateDirectories: string[] = [];
@@ -32,6 +33,18 @@ async function runCli(stateDirectory: string, arguments_: string[]): Promise<str
     timeout: 20_000,
   });
   return result.stdout.trim();
+}
+
+async function signInOwner(cloud: RunningTracksCloud): Promise<string> {
+  const response = await fetch(`${cloud.url}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token: OWNER_TOKEN }),
+  });
+  expect(response.status).toBe(200);
+  const cookie = response.headers.get("set-cookie")?.split(";", 1)[0];
+  expect(cookie).toBeTruthy();
+  return cookie!;
 }
 
 async function waitFor<T>(read: () => Promise<T | null>, timeoutMs = 5_000): Promise<T> {
@@ -120,11 +133,16 @@ describe("Tracks CLI end to end", () => {
     const sourceRoot = await createSource();
     const stateDirectory = await mkdtemp(join(tmpdir(), "tracks-cli-state-"));
     stateDirectories.push(stateDirectory);
-    const cloud = await startTracksCloud({ token: TOKEN, webDirectory: false });
+    const cloud = await startTracksCloud({
+      ownerToken: OWNER_TOKEN,
+      deviceToken: DEVICE_TOKEN,
+      webDirectory: false,
+    });
     clouds.push(cloud);
+    const ownerCookie = await signInOwner(cloud);
 
     const login = JSON.parse(await runCli(stateDirectory, [
-      "login", "--server", cloud.url, "--token", TOKEN, "--json",
+      "login", "--server", cloud.url, "--token", DEVICE_TOKEN, "--json",
     ])) as { loggedIn: boolean; connected: boolean };
     expect(login).toEqual({ loggedIn: true, connected: false, serverUrl: cloud.url });
 
@@ -141,7 +159,7 @@ describe("Tracks CLI end to end", () => {
       remote: { configured: true, connected: false },
     });
     const devicesBeforeConnect = await fetch(`${cloud.url}/api/devices`, {
-      headers: { Authorization: `Bearer ${TOKEN}` },
+      headers: { Cookie: ownerCookie },
     }).then((response) => response.json()) as { devices: unknown[] };
     expect(devicesBeforeConnect.devices).toHaveLength(0);
 
@@ -165,7 +183,7 @@ describe("Tracks CLI end to end", () => {
 
     const devicesAfterConnect = await waitFor(async () => {
       const value = await fetch(`${cloud.url}/api/devices`, {
-        headers: { Authorization: `Bearer ${TOKEN}` },
+        headers: { Cookie: ownerCookie },
       }).then((response) => response.json()) as { devices: unknown[] };
       return value.devices.length === 1 ? value.devices : null;
     });
@@ -188,14 +206,19 @@ describe("Tracks CLI end to end", () => {
     const sourceRoot = await createSource();
     const stateDirectory = await mkdtemp(join(tmpdir(), "tracks-cli-state-"));
     stateDirectories.push(stateDirectory);
-    const cloud = await startTracksCloud({ token: TOKEN, webDirectory: false });
+    const cloud = await startTracksCloud({
+      ownerToken: OWNER_TOKEN,
+      deviceToken: DEVICE_TOKEN,
+      webDirectory: false,
+    });
     clouds.push(cloud);
+    const ownerCookie = await signInOwner(cloud);
 
     const started = JSON.parse(await runCli(stateDirectory, [
       "web", "start", "--source", sourceRoot, "--no-open", "--json",
     ])) as { url: string };
     const login = JSON.parse(await runCli(stateDirectory, [
-      "login", "--server", cloud.url, "--token", TOKEN, "--json",
+      "login", "--server", cloud.url, "--token", DEVICE_TOKEN, "--json",
     ])) as { loggedIn: boolean; connected: boolean };
     expect(login).toMatchObject({ loggedIn: true, connected: false });
     expect(JSON.parse(await runCli(stateDirectory, ["connect", "--json"])))
@@ -203,7 +226,7 @@ describe("Tracks CLI end to end", () => {
 
     const devices = await waitFor(async () => {
       const value = await fetch(`${cloud.url}/api/devices`, {
-        headers: { Authorization: `Bearer ${TOKEN}` },
+        headers: { Cookie: ownerCookie },
       }).then((response) => response.json()) as { devices: Array<{ id: string }> };
       return value.devices.length === 1 ? value.devices : null;
     });
@@ -211,7 +234,7 @@ describe("Tracks CLI end to end", () => {
 
     const remoteLibrary = TrackLibrarySchema.parse(await fetch(
       `${cloud.url}/api/devices/${deviceId}/tracks?limit=60&offset=0`,
-      { headers: { Authorization: `Bearer ${TOKEN}` } },
+      { headers: { Cookie: ownerCookie } },
     ).then((response) => response.json()));
     const trackId = remoteLibrary.tracks[0]!.id;
 
@@ -311,7 +334,7 @@ describe("Tracks CLI end to end", () => {
     const reconnectedFromWeb = await fetch(`${started.url}/api/remote/connect`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ serverUrl: cloud.url, token: TOKEN }),
+      body: JSON.stringify({ serverUrl: cloud.url, token: DEVICE_TOKEN }),
     });
     expect(reconnectedFromWeb.status).toBe(200);
     expect(await reconnectedFromWeb.json()).toMatchObject({ configured: true, connected: true });
