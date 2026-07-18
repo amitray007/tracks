@@ -583,7 +583,7 @@ function ServerConnectionDialog({
           <span className="dialog-icon"><Icon name="integration" /></span>
           <div>
             <h2 id="server-connection-title">Tracks Server</h2>
-            <p>Connect this device for hosted viewing and live session links.</p>
+            <p>View and share this device's sessions online.</p>
           </div>
         </div>
         <IconButton label="Close server settings" icon="close" onClick={onClose} disabled={Boolean(busyAction)} />
@@ -656,7 +656,7 @@ function ServerConnectionDialog({
             className="server-logout-action"
             type="button"
             disabled={Boolean(busyAction)}
-            title="Remove saved server access and take device-backed live links offline"
+            title="Remove saved access and disconnect this device"
             onClick={() => void runAction("logout", () => disconnectTracksServer(true))}
           >
             {busyAction === "logout" ? "Logging out…" : "Log out"}
@@ -1061,11 +1061,10 @@ function SessionOverview({ track, mode }: { track: Track; mode: ViewMode }) {
     (entry.kind === "tool_result" && entry.isError)
     || (entry.kind === "status" && entry.tone === "danger"),
   ).length;
-  const providerEvents = track.entries.filter((entry) => entry.kind === "unsupported").length;
   const mechanics = track.entries.length - userMessages - assistantMessages - errors - subagents.length;
 
   return (
-    <section className="session-overview" aria-label="Loaded session overview">
+    <section className="session-overview" aria-label="Session overview">
       <header>
         <span>Summary</span>
         <span className="overview-badge">
@@ -1090,13 +1089,13 @@ function SessionOverview({ track, mode }: { track: Track; mode: ViewMode }) {
         <div>
           <Icon name={errors > 0 ? "warning" : "status"} size="sm" />
           <span>Quality</span>
-          <strong>{errors} errors detected; {providerEvents} provider-specific events preserved.</strong>
+          <strong>{errors === 0 ? "No errors detected." : `${errors} error${errors === 1 ? "" : "s"} detected.`}</strong>
         </div>
       </div>
       <footer>
         {mode === "compact"
-          ? `${Math.max(0, mechanics).toLocaleString()} loaded implementation events hidden from Highlights`
-          : `${track.entries.length.toLocaleString()} entries loaded${track.truncated ? " · more available on scroll" : ""}`}
+          ? `${Math.max(0, mechanics).toLocaleString()} additional events available in Full trace`
+          : `${track.entries.length.toLocaleString()} entries shown${track.truncated ? " · more available on scroll" : ""}`}
       </footer>
     </section>
   );
@@ -1143,7 +1142,6 @@ function DetailsRail({
   onClearFilters(): void;
   onTraceOrderChange(order: TraceOrder): void;
 }) {
-  const capabilities = Object.entries(track.summary.capabilities).filter(([, available]) => available);
   return (
     <aside className="details-rail" aria-label="Session details">
       <section>
@@ -1245,18 +1243,9 @@ function DetailsRail({
           ) : null}
         </section>
         </>
-      ) : (
-        <section>
-          <div className="rail-heading">Available evidence</div>
-          <div className="capability-list">
-            {capabilities.length > 0 ? capabilities.map(([name]) => (
-              <span key={name}><Icon name="status" size="xs" />{name.replace(/([A-Z])/g, " $1")}</span>
-            )) : <span className="muted">Basic messages only</span>}
-          </div>
-        </section>
-      )}
+      ) : null}
       <section>
-        <div className="rail-heading">Loaded session</div>
+        <div className="rail-heading">Session entries</div>
         <div className="slice-count">
           {track.entries.length.toLocaleString()}
           {track.summary.entryCount !== null
@@ -2026,12 +2015,12 @@ export function App() {
             ) : null}
             {selectedId && sharedView && runtimeContext?.online === false && !track ? (
               <EmptyPanel icon="session" title="The source device is offline">
-                The source device was disconnected, logged out, or lost its server connection. This live link will resume when that device reconnects.
+                Reconnect the source device to view this session.
               </EmptyPanel>
             ) : null}
             {runtimeContext?.surface === "cloud-device" && runtimeContext.online === false && !track ? (
               <EmptyPanel icon="session" title="This device is offline">
-                The device was disconnected or logged out. Reconnect it from the local Tracks viewer or run <code>tracks connect</code> to continue.
+                Reconnect it from Tracks or run <code>tracks connect</code> to continue.
               </EmptyPanel>
             ) : null}
             {!selectedId && library?.sourceState === "missing" ? (
@@ -2041,7 +2030,7 @@ export function App() {
             ) : null}
             {!selectedId && library?.sourceState === "ready" ? (
               <EmptyPanel icon="session" title="No sessions yet">
-                Claude Code sessions will appear here without being copied or modified.
+                Claude Code sessions will appear here automatically.
               </EmptyPanel>
             ) : null}
             {loadingTrack && !track ? (
@@ -2056,7 +2045,7 @@ export function App() {
                 {sharedView && runtimeContext?.online === false ? (
                   <div className="diagnostic-banner live-share-offline">
                     <Icon name="warning" />
-                    <span>The source device is offline. Already loaded entries remain visible, but Tracks Server has no stored copy and cannot fetch updates.</span>
+                    <span>The source device is offline. Reconnect it to load new updates.</span>
                   </div>
                 ) : null}
                 <div className="track-loaded">

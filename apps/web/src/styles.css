@@ -2263,9 +2263,6 @@ code, pre, kbd {
 .details-rail dl > div { display: grid; grid-template-columns: 60px minmax(0, 1fr); gap: 9px; margin-bottom: 9px; }
 .details-rail dt, .details-rail dd { margin: 0; }
 .details-rail dd { overflow: hidden; color: #b4b6ba; text-overflow: ellipsis; white-space: nowrap; }
-.capability-list { display: flex; flex-wrap: wrap; gap: 6px; }
-.capability-list span { display: inline-flex; align-items: center; gap: 4px; padding: 4px 6px; color: #aeb1b5; background: #151617; border: 1px solid #292b2e; border-radius: 3px; text-transform: capitalize; }
-.capability-list svg { color: var(--success); }
 .filter-list { display: grid; gap: 2px; }
 .filter-list > button {
   width: 100%;

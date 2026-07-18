@@ -28,9 +28,9 @@ export const DASHBOARD_HTML = `<!doctype html>
         <section class="access-panel" id="access-panel" aria-labelledby="access-title">
           <div class="access-heading">
             <span class="access-mark">${BRAND_ICON}</span>
-            <p class="eyebrow">TRACKS SERVER</p>
-            <h1 id="access-title">Connect to this server</h1>
-            <p>Enter the access token configured for this deployment.</p>
+            <p class="eyebrow">SERVER ACCESS</p>
+            <h1 id="access-title">Sign in to Tracks</h1>
+            <p>Enter your server access token to continue.</p>
           </div>
           <form id="access-form" method="post" action="/">
             <label for="access-token">Access token</label>
@@ -40,32 +40,26 @@ export const DASHBOARD_HTML = `<!doctype html>
             </div>
             <p class="error" id="access-error" role="alert" aria-live="polite"></p>
           </form>
-          <div class="privacy-note">
-            <i></i>
-            <span>Session data stays on connected devices</span>
-          </div>
         </section>
 
         <section class="devices" id="devices" hidden>
           <div class="hero">
-            <p class="eyebrow">DEVICE NETWORK</p>
+            <p class="eyebrow">YOUR DEVICES</p>
             <h1>Connected devices</h1>
-            <p>Sessions remain on their source devices. Tracks requests approved data only while a device is connected.</p>
+            <p>Choose a device to browse its sessions.</p>
           </div>
           <div class="section-heading">
-            <span>ONLINE NOW</span>
+            <span>AVAILABLE</span>
             <output id="device-count">0 devices</output>
           </div>
           <div class="device-grid" id="device-grid"></div>
           <div class="empty" id="device-empty">
             <span class="empty-mark">${BRAND_ICON}</span>
             <strong>No devices connected</strong>
-            <p>Connect from a local Tracks viewer. Disconnected devices stay private and do not appear here.</p>
+            <p>Open Tracks on another device and connect it to see its sessions here.</p>
           </div>
         </section>
       </main>
-
-      <footer><span>No session payloads stored</span><span>Live protocol v1</span></footer>
     </div>
     <script src="/dashboard.js" defer></script>
   </body>
@@ -97,10 +91,9 @@ body { -webkit-font-smoothing: antialiased; }
 button, input { font: inherit; }
 [hidden] { display: none !important; }
 
-.shell { min-height: 100vh; display: grid; grid-template-rows: 48px 1fr 42px; }
-.app-header, footer { display: flex; align-items: center; justify-content: space-between; padding: 0 28px; }
+.shell { min-height: 100vh; display: grid; grid-template-rows: 48px 1fr; }
+.app-header { display: flex; align-items: center; justify-content: space-between; padding: 0 28px; }
 .app-header { border-bottom: 1px solid #27292b; background: var(--surface); }
-footer { border-top: 1px solid #27292b; color: var(--text-faint); font-size: 10px; }
 
 .brand-lockup { display: flex; align-items: center; gap: 9px; font-size: 12px; letter-spacing: .01em; }
 .brand-lockup strong { font-weight: 650; }
@@ -143,9 +136,6 @@ main { width: min(940px, calc(100% - 40px)); margin: 0 auto; padding: 64px 0; }
 .field-row button:active { transform: scale(.97); }
 .field-row button:disabled { cursor: wait; opacity: .6; }
 .error { min-height: 15px; margin: 7px 0 0; color: #e8797e; font-size: 10px; line-height: 1.5; }
-.privacy-note { display: flex; align-items: center; justify-content: center; gap: 7px; margin-top: 15px; padding-top: 15px; color: var(--text-faint); border-top: 1px solid #25272a; font-size: 9px; }
-.privacy-note i { width: 5px; height: 5px; border-radius: 50%; background: var(--green); }
-
 .devices { animation: panel-enter 180ms var(--ease-out) both; }
 .hero { max-width: 650px; }
 .hero h1 { margin: 12px 0 12px; font-size: 36px; line-height: 1.08; letter-spacing: -.04em; }
@@ -178,13 +168,12 @@ main { width: min(940px, calc(100% - 40px)); margin: 0 auto; padding: 64px 0; }
 }
 
 @media (max-width: 680px) {
-  .app-header, footer { padding-inline: 16px; }
+  .app-header { padding-inline: 16px; }
   main { width: min(100% - 28px, 940px); padding: 38px 0; }
   .access-panel { margin-top: 12px; padding: 24px 20px; }
   .field-row { grid-template-columns: 1fr; }
   .field-row button { width: 100%; }
   .hero h1 { font-size: 30px; }
-  footer span:last-child { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -244,9 +233,7 @@ function renderDevices(payload) {
     const copy = document.createElement('div');
     const name = document.createElement('strong');
     name.textContent = device.name;
-    const platform = document.createElement('span');
-    platform.textContent = device.platform + ' · Tracks ' + device.version;
-    copy.append(name, platform);
+    copy.append(name);
     title.append(icon, copy);
     const dot = document.createElement('i');
     dot.className = 'live-dot';
@@ -254,11 +241,11 @@ function renderDevices(payload) {
 
     const meta = document.createElement('div');
     meta.className = 'device-meta';
-    const capabilities = document.createElement('span');
-    capabilities.textContent = device.capabilities.length + ' capabilities';
+    const sessions = document.createElement('span');
+    sessions.textContent = 'Sessions available';
     const seen = document.createElement('span');
-    seen.textContent = 'Open sessions · ' + relativeTime(device.lastSeenAt);
-    meta.append(capabilities, seen);
+    seen.textContent = 'Updated ' + relativeTime(device.lastSeenAt);
+    meta.append(sessions, seen);
     card.append(head, meta);
     deviceGrid.append(card);
   }
@@ -289,7 +276,7 @@ async function streamEvents(token) {
         cache: 'no-store'
       });
       if (!response.ok) throw new Error('Presence stream unavailable');
-      setConnection(true, 'Live device presence');
+      setConnection(true, 'Connected');
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
