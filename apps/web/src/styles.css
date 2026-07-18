@@ -1020,6 +1020,20 @@ code, pre, kbd {
   gap: 36px;
 }
 
+.workspace-body[data-empty="true"] {
+  min-height: calc(100dvh - var(--header-height));
+  grid-template-columns: minmax(0, 870px);
+  align-items: center;
+  padding-bottom: 0;
+}
+
+.workspace-body[data-mode="compact"][data-empty="true"] {
+  grid-template-columns: minmax(0, 820px);
+}
+
+.workspace-body[data-empty="true"] .track-column { padding-top: 0; }
+.workspace-body[data-empty="true"] .empty-panel { margin-block: 0; }
+
 .track-column { min-width: 0; padding-top: 42px; }
 
 .track-hero { padding: 0; border-bottom: 1px solid var(--border); }
@@ -2432,6 +2446,13 @@ code, pre, kbd {
 }
 
 .empty-icon { width: 42px; height: 42px; display: inline-grid; place-items: center; color: var(--text-muted); background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; }
+.empty-brand-mark {
+  color: #d9ddff;
+  background: #191b24;
+  border-color: #59618c;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 5px var(--background);
+}
 .empty-panel h2 { margin: 16px 0 7px; font-size: 16px; }
 .empty-panel p { margin: 0; color: var(--text-faint); font-size: 12px; line-height: 1.6; }
 .empty-panel code { color: var(--text-muted); }

@@ -49,6 +49,7 @@ import {
 import { SubAgentEventBody } from "./trace/SubAgentEvent";
 import { CopyButton } from "./ui/CopyButton";
 import { ClaudeCodeIcon } from "./ui/ClaudeCodeIcon";
+import { TracksLogo } from "./ui/TracksLogo";
 import { Icon, type IconName } from "./ui/Icon";
 import { MarkdownContent } from "./ui/MarkdownContent";
 import { LiveShareButton } from "./ui/LiveShareButton";
@@ -1038,10 +1039,22 @@ function SessionGroupControl({
   );
 }
 
-function EmptyPanel({ icon, title, children }: { icon: IconName; title: string; children: ReactNode }) {
+function EmptyPanel({
+  icon,
+  title,
+  children,
+  brand = false,
+}: {
+  icon: IconName;
+  title: string;
+  children: ReactNode;
+  brand?: boolean;
+}) {
   return (
     <div className="empty-panel">
-      <span className="empty-icon"><Icon name={icon} size="lg" /></span>
+      <span className={`empty-icon${brand ? " empty-brand-mark" : ""}`}>
+        {brand ? <TracksLogo size={22} /> : <Icon name={icon} size="lg" />}
+      </span>
       <h2>{title}</h2>
       <p>{children}</p>
     </div>
@@ -1874,6 +1887,13 @@ export function App() {
   const sessionShareUrl = track
     ? sharedView ? window.location.href : createSessionShareUrl(window.location.href, track.summary.id)
     : null;
+  const showingEmptyPanel = Boolean(
+    (!selectedId && sharedView && runtimeContext)
+    || (selectedId && sharedView && runtimeContext?.online === false && !track)
+    || (runtimeContext?.surface === "cloud-device" && runtimeContext.online === false && !track)
+    || (!selectedId && library?.sourceState === "missing")
+    || (!selectedId && library?.sourceState === "ready"),
+  );
 
   return (
     <div
@@ -1892,7 +1912,7 @@ export function App() {
         <aside className="library-panel">
         <header className="library-header">
           <div className="brand-lockup">
-            <span className="brand-mark"><Icon name="brand" size="sm" /></span>
+            <span className="brand-mark"><TracksLogo size={14} /></span>
             <span>Tracks</span>
             <span className="local-badge">{runtimeContext?.surface === "cloud-device" ? "Server" : "Local"}</span>
           </div>
@@ -2032,7 +2052,7 @@ export function App() {
           </div>
         </header>
 
-        <div className="workspace-body" data-mode={mode}>
+        <div className="workspace-body" data-mode={mode} data-empty={showingEmptyPanel}>
           <section className="track-column" aria-busy={loadingTrack}>
             {!selectedId && sharedView && runtimeContext ? (
               <EmptyPanel icon="link" title="This session link is incomplete">
@@ -2040,8 +2060,8 @@ export function App() {
               </EmptyPanel>
             ) : null}
             {selectedId && sharedView && runtimeContext?.online === false && !track ? (
-              <EmptyPanel icon="session" title="The source device is offline">
-                Reconnect the source device to view this session.
+              <EmptyPanel brand icon="link" title="This shared link is inactive">
+                This session is unavailable right now. Ask the sender to reactivate the link, then try again.
               </EmptyPanel>
             ) : null}
             {runtimeContext?.surface === "cloud-device" && runtimeContext.online === false && !track ? (
