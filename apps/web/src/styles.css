@@ -2269,11 +2269,15 @@ code, pre, kbd {
   top: calc(var(--header-height) + 26px);
   max-height: calc(100vh - var(--header-height) - 38px);
   overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-width: none;
   padding-top: 44px;
   padding-right: 3px;
   color: var(--text-faint);
   font-size: 10px;
 }
+
+.details-rail::-webkit-scrollbar { display: none; }
 
 .details-rail section { padding: 0 0 18px; margin-bottom: 18px; border-bottom: 1px solid #25272a; }
 .rail-heading { margin-bottom: 12px; color: #8e9196; font-size: 9px; font-weight: 650; letter-spacing: 0.095em; text-transform: uppercase; }

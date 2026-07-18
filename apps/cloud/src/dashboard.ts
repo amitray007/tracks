@@ -150,7 +150,7 @@ main { width: min(940px, calc(100% - 40px)); margin: 0 auto; padding: 64px 0; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; margin-top: 42px; padding-bottom: 10px; color: #73777d; border-bottom: 1px solid #27292b; font-size: 9px; font-weight: 650; letter-spacing: .12em; }
 .section-heading output { color: #777b82; font-size: 9px; font-weight: 400; letter-spacing: 0; text-transform: none; }
 .device-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
-.device-card { min-width: 0; min-height: 126px; display: flex; flex-direction: column; padding: 15px; color: inherit; text-decoration: none; background: var(--surface-raised); border: 1px solid var(--border); border-radius: 7px; transition: border-color 140ms ease, background-color 140ms ease, transform 140ms var(--ease-out); }
+.device-card { min-width: 0; display: flex; flex-direction: column; gap: 13px; padding: 15px; color: inherit; text-decoration: none; background: var(--surface-raised); border: 1px solid var(--border); border-radius: 7px; transition: border-color 140ms ease, background-color 140ms ease, transform 140ms var(--ease-out); }
 .device-card:active { transform: scale(.985); }
 .device-card:focus-visible { outline: 2px solid #727da9; outline-offset: 2px; }
 .device-card header { height: auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0; background: transparent; border: 0; }
@@ -161,7 +161,7 @@ main { width: min(940px, calc(100% - 40px)); margin: 0 auto; padding: 64px 0; }
 .device-title strong { overflow: hidden; font-size: 12px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .device-title span, .device-meta { color: #71757a; font-size: 9px; }
 .live-dot { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--green); }
-.device-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: auto; padding-top: 12px; border-top: 1px solid #242628; }
+.device-meta { display: flex; justify-content: space-between; gap: 12px; padding-top: 12px; border-top: 1px solid #242628; }
 .empty { min-height: 230px; display: grid; place-items: center; align-content: center; text-align: center; }
 .empty-mark { width: 34px; height: 34px; margin-bottom: 12px; border-radius: 50%; }
 .empty-mark svg { width: 20px; height: 20px; }
