@@ -8,12 +8,12 @@ No prompt text, command text, tool arguments, project name, source path, credent
 
 ## Evidence baseline
 
-Evidence reviewed on 2026-07-16:
+The adapter is based on:
 
 - Local Claude Code CLI `2.1.211` and its generated `--help` surface.
-- The latest `amitray007/claude-code-schema` release, `v2.1.211`.
-- A structure-only sample of recent local Claude JSONL records, limited to record names, key names, value types, and aggregate counts.
-- Aggregate size and path-depth observations across the local Claude data directory.
+- The `claude-code-schema` release matching that CLI version.
+- Sanitized structure-only fixtures limited to record names, key names, value types, and synthetic values.
+- Synthetic stress cases covering large files, large source trees, partial records, and nested agent layouts.
 
 The `claude-code-schema` repository is useful for versioned configuration, environment-variable, CLI-option, global-config, and keybinding evidence. It is not a schema for saved session/transcript JSONL. Tracks must not use it as proof of session record structure. Session behavior is established from sanitized fixtures, structure-only local inspection, Claude Code behavior, and future first-party documentation when available.
 
@@ -22,17 +22,16 @@ Reference:
 - [claude-code-schema repository](https://github.com/amitray007/claude-code-schema)
 - [latest reviewed release](https://github.com/amitray007/claude-code-schema/releases/tag/v2.1.211)
 
-## Local source observations
+## Source-shape and scale assumptions
 
-The inspected machine contained:
+The repository does not include inventories or payloads from a contributor's local Claude data. Performance and discovery work use sanitized or synthetic cases that model:
 
-- 4,640 JSONL files below the Claude projects source.
-- One separate top-level history JSONL and three plugin-owned JSONL files.
-- Approximately 2.57 GB across all Claude JSONL files.
-- A largest observed JSONL file of approximately 100 MB.
-- Project JSONL paths at multiple relative depths, consistent with ordinary sessions plus nested/related agent storage.
+- Thousands of JSONL files.
+- Multi-gigabyte source trees.
+- Individual JSONL files around 100 MB.
+- Ordinary sessions alongside nested and related agent storage.
 
-These numbers are a stress-test data point, not product telemetry and not a portability assumption. They establish that a normal developer corpus can contain thousands of files and multi-gigabyte source data.
+These are engineering test bounds, not product telemetry or claims about any user's machine.
 
 ### Discovery rule
 
@@ -83,7 +82,7 @@ Frequently observed optional evidence included UUID/parent UUID, session ID, age
 | `thinking` block | Reasoning entry | Availability and redaction remain explicit |
 | `tool_use` block | Tool call | Preserve exact Claude tool name and input; categorize by meaning |
 | `tool_result` block | Tool result | Relate by tool-use ID; content may be string or structured blocks |
-| Complete `<task-notification>` user record | Agent tool result | Claude emits completed background-task output as a synthetic user string. Parse only the complete, allowlisted wrapper; relate it to its `tool-use-id`, expose summary/result/usage as agent evidence, and never render the wrapper as user prose. Unknown or malformed XML remains untouched. |
+| Complete `<task-notification>` user record | Agent tool result | Claude emits completed background-task output as a synthetic user string. Parse only the complete, allowlisted wrapper; relate it to its `tool-use-id` when present, expose summary/result/usage as agent evidence, and never render the wrapper as user prose. Unknown or malformed XML remains untouched. |
 | File-history snapshot/delta | Artifact/file evidence or unsupported entry | Do not claim a user-visible file change until semantics are validated |
 | Agent/sidechain relationship evidence | Sub-agent relation or provider extension | Validate identity across nested files before creating child tracks |
 | Mode, permission, queue, title, PR-link records | Status/metadata/unsupported according to proven meaning | Retain raw evidence state and exact record kind |

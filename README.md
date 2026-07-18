@@ -91,6 +91,19 @@ Start with the [documentation index](docs/README.md).
 - [Design documentation](docs/design/README.md)
 - [Delivery roadmap](docs/roadmap.md)
 
+## Privacy when contributing
+
+Tracks reads data that can contain prompts, source code, file paths, command output, and credentials. Do not include real session files, screenshots of private sessions, access tokens, home-directory paths, private project names, or other personal data in issues, fixtures, commits, or pull requests.
+
+Use minimal synthetic fixtures for parser and rendering tests. Before opening a pull request, run:
+
+```sh
+pnpm check
+gitleaks git . --redact
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow and [SECURITY.md](SECURITY.md) for private vulnerability reporting.
+
 ## Core architectural rule
 
 Provider data is normalized before it reaches the UI:
@@ -114,3 +127,9 @@ Shared components render a documented minimum canonical shape and treat richer p
 Implemented now: a pnpm/TypeScript workspace, canonical runtime schemas, provider SDK boundary, bounded Claude Code JSONL discovery/parsing, a tested Node loopback API, a single background CLI agent, production web serving, responsive compact/full views, the semantic Hugeicons Free registry, authenticated outbound device connections, a versioned bounded relay protocol, a hosted online-device view, scoped per-session live links, explicit source-offline behavior, and a non-root/read-only Compose deployment.
 
 The implementation intentionally remains a vertical slice. The self-hosted bootstrap uses one deployment token rather than production account/device authorization, and live-share routing metadata is process-memory-only. Revocation/expiry controls, project-scoped live shares, OS credential storage, SQLite/FTS, revision-checked raw inspection, reviewed static export, and production multi-instance hardening remain roadmap work. Portless is pinned for development only and is not a shipped runtime dependency.
+
+## Open-source status
+
+Tracks is pre-release software. Public APIs, storage formats, and security boundaries may change before the first stable release.
+
+Third-party product names and marks are used only to identify interoperability and reference behavior. Tracks is an independent project and is not endorsed by Anthropic or Traces.
