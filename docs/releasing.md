@@ -20,19 +20,15 @@ Node and installs a small `tracks` launcher.
 
 ## One-time repository setup
 
-Add two fine-grained GitHub tokens as Tracks Actions secrets:
+Allow GitHub Actions to create pull requests in the Tracks repository Actions
+settings. Release Please uses the workflow's built-in `GITHUB_TOKEN`; no
+personal release token is needed. After creating or updating a release pull
+request, the workflow explicitly dispatches CI and secret scanning against its
+branch so the normal branch checks still apply.
 
-- `RELEASE_PLEASE_TOKEN`: grant Contents, Issues, and Pull requests read/write
-  access only to `amitray007/tracks`. Release Please needs a user or GitHub App
-  token so its release pull requests trigger the normal CI and secret-scanning
-  workflows. The built-in `GITHUB_TOKEN` does not trigger those follow-up
-  workflows.
-- `HOMEBREW_TAP_TOKEN`: grant Contents read/write access only to
-  `amitray007/homebrew-tap`.
-
-Do not reuse a broad personal access token. The account behind
-`RELEASE_PLEASE_TOKEN` must be allowed to open pull requests in Tracks, but it
-does not need permission to bypass the `main` branch ruleset.
+Add a fine-grained GitHub token as the Tracks Actions secret
+`HOMEBREW_TAP_TOKEN`. Give it Contents read/write access only to
+`amitray007/homebrew-tap`. Do not reuse a broad personal access token.
 
 ## Version selection
 
