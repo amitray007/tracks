@@ -40,7 +40,7 @@
   "devDependencies": {
     "@types/node": "26.2.0",
     "concurrently": "10.0.5",
-    "portless": "0.15.5",
+    "portless": "0.15.6",
     "tsx": "4.23.12",
     "typescript": "7.0.2",
     "vitest": "4.1.11"
