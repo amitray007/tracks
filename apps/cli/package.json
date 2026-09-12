@@ -23,7 +23,7 @@
     "@tracks/live-protocol": "workspace:*",
     "@tracks/provider-claude-code": "workspace:*",
     "@tracks/server": "workspace:*",
-    "open": "11.0.1",
+    "open": "11.0.2",
     "ws": "8.21.3"
   },
   "devDependencies": {
