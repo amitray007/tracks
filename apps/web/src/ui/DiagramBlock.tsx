@@ -28,6 +28,8 @@ function loadMermaid() {
         securityLevel: "strict",
         suppressErrorRendering: true,
         theme: "base",
+        layout: "dagre",
+        look: "classic",
         maxTextSize: MAX_DIAGRAM_SOURCE_LENGTH,
         maxEdges: 600,
         htmlLabels: false,
@@ -95,11 +97,11 @@ async function renderMermaid(source: string): Promise<string> {
 function themeGraphviz(svgSource: string): string {
   const document = new DOMParser().parseFromString(svgSource, "image/svg+xml");
   const svg = document.documentElement;
-  const background = svg.querySelector(":scope > g > polygon[fill='white'][stroke='transparent']");
+  const background = svg.querySelector(":scope > g > polygon[fill='white']:is([stroke='transparent'], [stroke='none'])");
   background?.setAttribute("fill", "transparent");
 
   svg.querySelectorAll("[stroke='black']").forEach((element) => element.setAttribute("stroke", "#9298a3"));
-  svg.querySelectorAll("text[fill='black']").forEach((element) => element.setAttribute("fill", "#d7d9dd"));
+  svg.querySelectorAll("text[fill='black'], text:not([fill])").forEach((element) => element.setAttribute("fill", "#d7d9dd"));
   svg.querySelectorAll("polygon[fill='black']").forEach((element) => element.setAttribute("fill", "#9298a3"));
   svg.removeAttribute("width");
   svg.removeAttribute("height");
