@@ -23,13 +23,13 @@
     "@tracks/live-protocol": "workspace:*",
     "@tracks/provider-claude-code": "workspace:*",
     "@tracks/server": "workspace:*",
-    "open": "11.0.1",
+    "open": "11.0.4",
     "ws": "8.21.3"
   },
   "devDependencies": {
     "@tracks/cloud": "workspace:*",
     "@tracks/core-model": "workspace:*",
     "@types/ws": "8.18.1",
-    "vitest": "4.1.11"
+    "vitest": "5.0.1"
   }
 }
